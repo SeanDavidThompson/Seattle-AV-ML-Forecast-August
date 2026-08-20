@@ -7,6 +7,8 @@
 #   2. Fill lag columns from t-1 predictions (or historical for t == first year)
 #   3. Score LAND with lgb_com_land_delta_cv (delta), fall back to level
 #   4. Score IMPR with lgb_com_impr_delta_cv (delta), fall back to level
+#      (parcels with land but no improvement history are held at 0 - see the
+#       land-only gate below; toggle with forecast_gate_land_only)
 #   5. Back-transform; store predictions for t+1 lag inputs
 #
 # Writes:
@@ -172,6 +174,60 @@ fcst_years  <- fcst_years[fcst_years %in% unique(panel_ext$tax_yr)]
 
 message("  Forecasting commercial AV for years: ",
         paste(fcst_years, collapse = ", "))
+
+# ---- LAND-ONLY PARCELS: suppress invented improvement values ----------------
+# A parcel with land but no improvements (vacant land, and in the condo track
+# units whose improvement value sits on a parent parcel) has appr_imps_val == 0
+# or NA in every historical year.  Those rows never enter the improvement
+# training frames: build_subgroup_model_data() only takes log() of a positive
+# appr_imps_val, so dlog_imps is NA for them and the mask drops them.
+#
+# The forecast, however, still scores them.  The delta model is skipped because
+# log_appr_imps_val_lag1 is NA, so they fall through to the IMPR level
+# fallback, and exp() of any level prediction is strictly positive.  The result
+# is a parcel that held zero improvements for a decade being assigned a
+# building in the first forecast year.
+#
+# Effect at the 2026 base year: 43% of apartment parcels, 67% of office, 70%
+# of industrial, 87% of com_other, 72% of condo units.  Of those, 98-99% never
+# carried a nonzero improvement value in 2015-2025, so they are genuinely
+# land-only rather than missing records.  The remainder (apt 189, office 56,
+# industrial 54, retail 36, com_other 58, hospitality 29, medical 21) DID have
+# improvement history and are excluded from the gate below, since for them the
+# level fallback is doing the right thing.
+#
+# Set forecast_gate_land_only = FALSE in the global env to restore the old
+# behaviour for comparison.
+GATE_LAND_ONLY <- isTRUE(get0("forecast_gate_land_only",
+                              envir = .GlobalEnv, ifnotfound = TRUE))
+
+land_only_ids <- character(0)
+if (GATE_LAND_ONLY && "appr_imps_val" %in% names(panel_ext)) {
+  .hist <- panel_ext[tax_yr <= last_obs_yr]
+  .flags <- .hist[, .(
+    ever_imps = any(!is.na(appr_imps_val) & appr_imps_val > 0),
+    ever_land = any(!is.na(appr_land_val) & appr_land_val > 0)
+  ), by = parcel_id]
+
+  # Land-only: never any improvements, but does hold land. Requiring land > 0
+  # keeps genuinely empty records out of the gate - those are a different
+  # problem and should stay visible rather than be silently zeroed.
+  land_only_ids <- .flags[ever_imps == FALSE & ever_land == TRUE, parcel_id]
+
+  .no_land <- .flags[ever_imps == FALSE & ever_land == FALSE, .N]
+
+  message("  land-only gate: ", scales::comma(length(land_only_ids)),
+          " of ", scales::comma(nrow(.flags)),
+          " parcels have land but no improvement history through ",
+          last_obs_yr, " - improvements held at 0")
+  if (.no_land > 0)
+    message("    note: ", scales::comma(.no_land),
+            " parcel(s) have neither land nor improvement history - NOT gated, ",
+            "these need separate review")
+  rm(.hist, .flags)
+} else if (!GATE_LAND_ONLY) {
+  message("  land-only gate: DISABLED (forecast_gate_land_only = FALSE)")
+}
 
 # ---- Initialise lag tracker from last observed year -------------------------
 prev_preds <- panel_ext[tax_yr == last_obs_yr,
@@ -425,8 +481,14 @@ for (yr in fcst_years) {
   }
 
   # IMPR: level fallback
+  # Land-only parcels are excluded here: the level model was trained only on
+  # rows with a positive improvement value, so scoring a parcel that has never
+  # had one is an extrapolation outside the training support, and exp() makes
+  # the result strictly positive no matter what the model returns.
   if (has_impr_level) {
     need_impr_level <- is.na(yr_data$pred_log_imps_val)
+    if (length(land_only_ids))
+      need_impr_level <- need_impr_level & !(yr_data$parcel_id %in% land_only_ids)
     if (any(need_impr_level)) {
       yr_data[need_impr_level,
               pred_log_imps_val := safe_predict(impr_level_cv, .SD),
@@ -444,8 +506,12 @@ for (yr in fcst_years) {
     global_ratio <- median(hist_ratio$ratio, na.rm = TRUE)
     yr_data <- merge(yr_data, hist_ratio, by = "parcel_id", all.x = TRUE)
     yr_data[is.na(ratio), ratio := global_ratio]
-    yr_data[is.na(pred_log_imps_val),
+    .ratio_fill <- is.na(yr_data$pred_log_imps_val)
+    if (length(land_only_ids))
+      .ratio_fill <- .ratio_fill & !(yr_data$parcel_id %in% land_only_ids)
+    yr_data[.ratio_fill,
             pred_log_imps_val := pred_log_land_val + log(ratio)]
+    rm(.ratio_fill)
     yr_data[, ratio := NULL]
   }
 
@@ -455,6 +521,16 @@ for (yr in fcst_years) {
     yr_data[, (.c) := NULL]
   yr_data[, pred_appr_land_val  := exp(pred_log_land_val)]
   yr_data[, pred_appr_imps_val  := exp(pred_log_imps_val)]
+
+  # Land-only parcels carry zero improvements, not NA: an explicit 0 keeps
+  # them in the matched-parcel population downstream (av_reconcile_certified.R
+  # drops rows where av is NA) and keeps pred_total_assessed equal to land.
+  if (length(land_only_ids)) {
+    .lo <- yr_data$parcel_id %in% land_only_ids
+    if (any(.lo)) yr_data[.lo, pred_appr_imps_val := 0]
+    rm(.lo)
+  }
+
   yr_data[, pred_total_assessed := pred_appr_land_val + pred_appr_imps_val]
   yr_data[, pred_log_total      := log(pmax(pred_total_assessed, 1))]
 
@@ -470,6 +546,13 @@ for (yr in fcst_years) {
 
   message("    Year ", yr, ": ",
           sum(!is.na(yr_data$pred_appr_land_val)), " parcels scored.")
+  if (length(land_only_ids)) {
+    .n_gated <- sum(yr_data$parcel_id %in% land_only_ids)
+    if (.n_gated > 0)
+      message("      land-only: ", scales::comma(.n_gated),
+              " parcel(s) held at 0 improvements")
+    rm(.n_gated)
+  }
 }
 
 # ============================================================================
