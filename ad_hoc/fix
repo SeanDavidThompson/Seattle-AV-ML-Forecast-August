@@ -1,0 +1,81 @@
+p <- here::here("scripts", "ml", "main_ml.R")
+x <- paste(readLines(p, warn = FALSE), collapse = "\n")
+
+anchor <- 'message("    dropped ", n_drop, " features with no CoStar forecast coverage")'
+stopifnot(lengths(gregexpr(anchor, x, fixed = TRUE)) == 1)
+
+blk <- paste(
+'',
+'    # --- Drop non-stationary econ LEVELS where a growth twin exists ------',
+'    # econ_*_lvl_lag1 series are levels that rise almost every year, so a',
+'    # tree reads them as a time index rather than a market signal. The',
+'    # 2026-09 audit found econ_population_thous_lvl_lag1 fully broken in',
+'    # all six commercial models: perfectly monotone, forecast range',
+'    # 3,310-3,393 entirely above the training max of 3,294, and the highest',
+'    # split at 3,278 - so every forecast year lands in one leaf and the',
+'    # response is a constant. Case-Shiller index level had no splits in the',
+'    # forecast region in five of six.',
+'    #',
+'    # Same defect as cs_apt_demand_units, but the fix is simpler: the',
+'    # matching _yoy_lag1 growth series is ALREADY a predictor, so the',
+'    # stationary information is retained and only the trend proxy goes.',
+'    # A level is dropped ONLY when its growth twin is present.',
+'    if (isTRUE(get0("drop_econ_levels", envir = .GlobalEnv,',
+'                    ifnotfound = TRUE))) {',
+'      lvl_cand <- grep("^econ_.*_lvl_lag[0-9]+$", usable_cols, value = TRUE)',
+'      if (length(lvl_cand)) {',
+'        twin <- sub("_lvl_lag", "_yoy_lag", lvl_cand)',
+'        has_twin <- twin %in% usable_cols',
+'        to_drop <- lvl_cand[has_twin]',
+'        kept    <- lvl_cand[!has_twin]',
+'        if (length(to_drop)) {',
+'          usable_cols <- setdiff(usable_cols, to_drop)',
+'          message("    dropped ", length(to_drop),',
+'                  " non-stationary econ level(s) with a growth twin:")',
+'          for (z in to_drop) message("       - ", z)',
+'        }',
+'        if (length(kept))',
+'          message("    kept ", length(kept),',
+'                  " econ level(s) with NO growth twin: ",',
+'                  paste(kept, collapse = ", "))',
+'      }',
+'    }',
+'',
+sep = "\n")
+
+x <- sub(anchor, paste0(anchor, blk), x, fixed = TRUE)
+writeLines(x, p)
+cat("drop_econ_levels occurrences:", lengths(gregexpr("drop_econ_levels", x, fixed = TRUE)), "\n")
+
+for (sg in c("apt","office","industrial","retail","hospitality","medical")) {
+  f <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_baseline_%s.rds", sg)
+  if (file.exists(f)) file.copy(f, sub("baseline", "PREecondrop_baseline", f), overwrite = TRUE)
+}
+
+for (sg in c("apt","office","industrial","retail","hospitality","medical")) {
+  f <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_baseline_%s.rds", sg)
+  if (file.exists(f)) file.copy(f, sub("baseline", "PREecondrop_baseline", f), overwrite = TRUE)
+}
+
+source(here::here("scripts", "ml", "main_ml.R"))
+run_main_ml(scenario = "baseline", prop_scope = "com",
+            forecast_only = TRUE, model_replicate = TRUE)
+            
+library(data.table)
+sgs <- c("apt","office","industrial","retail","hospitality","medical")
+
+cmp <- rbindlist(lapply(sgs, function(sg) {
+  old <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_PREecondrop_baseline_%s.rds", sg)
+  new <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_baseline_%s.rds", sg)
+  if (!file.exists(old) || !file.exists(new)) return(NULL)
+  g <- function(f) {
+    d <- readRDS(f); setDT(d); d[, tax_yr := as.integer(tax_yr)]
+    d[tax_yr >= 2027, .(imps = sum(pred_appr_imps_val, na.rm = TRUE)), by = tax_yr][order(tax_yr)]
+  }
+  a <- g(old); b <- g(new)
+  data.table(subgroup = sg,
+             before_cum = round(100 * (a[["imps"]][5] / a[["imps"]][1] - 1), 2),
+             after_cum  = round(100 * (b[["imps"]][5] / b[["imps"]][1] - 1), 2))
+}))
+cmp[, change_pp := round(after_cum - before_cum, 2)]
+print(cmp)
