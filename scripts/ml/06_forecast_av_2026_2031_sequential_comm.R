@@ -110,6 +110,46 @@ if (!"spec_area" %in% names(panel_ext) ||
   }
 }
 
+# ---- Ensure spec_sub_area is present (specialty regional rate routing) ------
+# Some specialty reports (Apartments 100) publish a rate per REGION, and list
+# the specialty neighborhoods (KCA SpecSubArea) each region covers.  The
+# commercial panel does not carry SpecSubArea, so join it from EXTR_Parcel
+# the same way spec_area is.  Any existing column with the same meaning is
+# standardised to `spec_sub_area`.
+.ssa_alias <- intersect(c("spec_sub_area", "spec_sub", "SpecSubArea"), names(panel_ext))
+if (length(.ssa_alias) && .ssa_alias[1] != "spec_sub_area")
+  data.table::setnames(panel_ext, .ssa_alias[1], "spec_sub_area")
+if (!"spec_sub_area" %in% names(panel_ext) ||
+    all(is.na(suppressWarnings(as.integer(as.character(panel_ext$spec_sub_area)))))) {
+  .pp3 <- here::here("data", "kca",
+                     get("kca_date_data_extracted", envir = .GlobalEnv),
+                     "EXTR_Parcel.csv")
+  if (file.exists(.pp3)) {
+    message("  spec_sub_area missing/all-NA in commercial panel - joining SpecSubArea from EXTR_Parcel ...")
+    ss_lkp <- data.table::fread(.pp3, select = c("Major", "Minor", "SpecSubArea"))
+    ss_lkp[, major := stringr::str_pad(trimws(as.character(Major)), 6, "left", "0")]
+    ss_lkp[, minor := stringr::str_pad(trimws(as.character(Minor)), 4, "left", "0")]
+    .use_dash3 <- any(grepl("-", head(panel_ext$parcel_id, 10)))
+    ss_lkp[, parcel_id := if (.use_dash3) paste0(major, "-", minor)
+                          else            paste0(major, minor)]
+    ss_lkp <- unique(
+      ss_lkp[, .(parcel_id,
+                 spec_sub_area_extr = suppressWarnings(as.integer(SpecSubArea)))],
+      by = "parcel_id")
+    if ("spec_sub_area" %in% names(panel_ext)) panel_ext[, spec_sub_area := NULL]
+    panel_ext[ss_lkp, on = "parcel_id", spec_sub_area := i.spec_sub_area_extr]
+    message("  spec_sub_area joined: ",
+            scales::comma(sum(!is.na(panel_ext$spec_sub_area) & panel_ext$spec_sub_area > 0)),
+            " rows with a specialty neighborhood of ", scales::comma(nrow(panel_ext)))
+    rm(ss_lkp)
+  } else {
+    warning("EXTR_Parcel.csv not found - spec_sub_area unavailable. Specialty ",
+            "regional rates cannot be applied; parcels fall back to the ",
+            "headline specialty rate.", call. = FALSE)
+    panel_ext[, spec_sub_area := NA_integer_]
+  }
+}
+
 # ---- Load models (support both new split names and legacy aliases) ----------
 resolve_cv <- function(...) {
   # Return first cv object found among the supplied name candidates
@@ -286,10 +326,14 @@ for (yr in fcst_years) {
   # ---- ACTUALS ANCHOR: reported growth instead of ML ----------------------
   # Two distinct sources of reported growth, applied in precedence order:
   #
+  #   1a. SPECIALTY REGIONAL rates (report_kind == "specialty_region"): some
+  #      specialty reports (Apartments 100) publish a rate per region and list
+  #      the specialty neighborhoods (SpecSubArea) each region covers.  A
+  #      parcel whose (spec_area, spec_sub_area) is listed takes that rate.
   #   1. SPECIALTY reports (280 Major Office, 250 Major Retail, 500 Warehouses,
   #      160 Hotels, ...).  Countywide populations valued by a specialty
   #      appraiser.  These are the correct source for any parcel with a
-  #      spec_area.
+  #      spec_area that did not pick up a regional rate.
   #   2. GEOGRAPHIC district reports (Central/North/South "Geo Area" tables).
   #      These are computed on the NON-specialty population - the published
   #      Area 30 total reconciles to parcels with spec_area == 0 - so they must
@@ -327,15 +371,98 @@ for (yr in fcst_years) {
     # (1/1/A revalue posts to the A+1 tax roll), so they anchor tax_yr A+1.
     act_yr <- act_raw[basis == "population" & assessment_yr + 1L == yr]
 
-    # ---- 1. Specialty rates -------------------------------------------------
+    # ---- 1a. Specialty REGIONAL rates ---------------------------------------
+    # One row per (spec_area, spec_region) with the neighborhoods it covers in
+    # `nbhds` ("10,20,30").  Expand to one row per (spec_area, nbhd) and join
+    # on the parcel's specialty neighborhood.  Rows that match are anchored
+    # here; everything else falls through to the headline rate in step 1.
+    if (all(c("spec_region", "nbhds") %in% names(act_yr)) &&
+        "spec_sub_area" %in% names(yr_data)) {
+      if (!"area_name" %in% names(act_yr)) act_yr[, area_name := NA_character_]
+      reg_act <- act_yr[report_kind == "specialty_region" & !is.na(spec_area) &
+                          !is.na(spec_region) & !is.na(nbhds) & nzchar(nbhds) &
+                          is.finite(log1p(pct_change))]
+      if (nrow(reg_act) > 0) {
+        reg_act <- reg_act[, .(nbhd_join = suppressWarnings(
+                                 as.integer(trimws(unlist(strsplit(nbhds, ","))))))
+                           , by = .(spec_area_join = as.integer(spec_area),
+                                    spec_region    = as.integer(spec_region),
+                                    region_name    = area_name,
+                                    dlog_reg       = log1p(pct_change))]
+        reg_act <- reg_act[!is.na(nbhd_join)]
+        n_dup <- sum(duplicated(reg_act, by = c("spec_area_join", "nbhd_join")))
+        if (n_dup > 0)
+          warning("Year ", yr, ": ", n_dup, " specialty neighborhood(s) listed ",
+                  "under more than one region - first region kept.", call. = FALSE)
+        reg_act <- unique(reg_act, by = c("spec_area_join", "nbhd_join"))
+
+        yr_data[, spec_sub_join_tmp :=
+                  suppressWarnings(as.integer(as.character(spec_sub_area)))]
+        yr_data[, `:=`(dlog_reg_tmp = NA_real_, spec_region_tmp = NA_integer_,
+                       region_name_tmp = NA_character_)]
+        yr_data[reg_act, on = .(spec_area = spec_area_join,
+                                spec_sub_join_tmp = nbhd_join),
+                `:=`(dlog_reg_tmp    = i.dlog_reg,
+                     spec_region_tmp = i.spec_region,
+                     region_name_tmp = i.region_name)]
+        hit_reg <- !is.na(yr_data$dlog_reg_tmp)
+        if (any(hit_reg))
+          yr_data[hit_reg, `:=`(dlog_actual = dlog_reg_tmp,
+                                rate_source = "spec_region_report")]
+
+        # How much did the regional rates cover?  AV is the lag-1 (prior
+        # tax-year) land + imps, i.e. TY2026 AV when forecasting TY2027.
+        reg_cov <- yr_data[hit_reg,
+                           .(parcels = .N,
+                             av_prior = sum(data.table::fifelse(
+                                 is.na(log_appr_land_val_lag1), 0,
+                                 exp(log_appr_land_val_lag1)) +
+                               data.table::fifelse(
+                                 is.na(log_appr_imps_val_lag1), 0,
+                                 exp(log_appr_imps_val_lag1)), na.rm = TRUE)),
+                           by = .(spec_area, spec_region = spec_region_tmp,
+                                  region_name = region_name_tmp,
+                                  pct = expm1(dlog_reg_tmp))]
+        data.table::setorder(reg_cov, spec_area, spec_region)
+        message(sprintf("    specialty regional rates (TY%d): %s parcels | TY%d AV $%.2fB",
+                        yr, scales::comma(sum(reg_cov$parcels)), yr - 1L,
+                        sum(reg_cov$av_prior) / 1e9))
+        for (i in seq_len(nrow(reg_cov)))
+          message(sprintf("      spec %-4s R%d %-14s %+6.2f%% | %9s parcels | TY%d AV $%.2fB",
+                          reg_cov$spec_area[i], reg_cov$spec_region[i],
+                          dplyr::coalesce(reg_cov$region_name[i], ""),
+                          100 * reg_cov$pct[i], scales::comma(reg_cov$parcels[i]),
+                          yr - 1L, reg_cov$av_prior[i] / 1e9))
+        # Region-level rows that matched no parcels are worth knowing about
+        miss_reg <- unique(reg_act[, .(spec_area_join, spec_region, region_name)])[
+          !reg_cov, on = .(spec_area_join = spec_area, spec_region)]
+        if (nrow(miss_reg) > 0)
+          message("      no parcels matched: ",
+                  paste(sprintf("spec %s R%d %s", miss_reg$spec_area_join,
+                                miss_reg$spec_region,
+                                dplyr::coalesce(miss_reg$region_name, "")),
+                        collapse = ", "))
+
+        yr_data[, c("spec_sub_join_tmp", "dlog_reg_tmp",
+                    "spec_region_tmp", "region_name_tmp") := NULL]
+      }
+    }
+
+    # ---- 1. Specialty rates (headline, one per spec_area) -------------------
+    # Fills only rows still unanchored, so regional rates from 1a survive.
     spec_act <- act_yr[report_kind == "specialty" & !is.na(spec_area),
                        .(spec_area_join = as.integer(spec_area),
                          dlog_spec      = log1p(pct_change))]
     spec_act <- unique(spec_act[is.finite(dlog_spec)], by = "spec_area_join")
     if (nrow(spec_act) > 0) {
+      yr_data[, dlog_spec_tmp := NA_real_]
       yr_data[spec_act, on = .(spec_area = spec_area_join),
-              dlog_actual := i.dlog_spec]
-      yr_data[!is.na(dlog_actual), rate_source := "specialty_report"]
+              dlog_spec_tmp := i.dlog_spec]
+      fill_spec <- is.na(yr_data$dlog_actual) & !is.na(yr_data$dlog_spec_tmp)
+      if (any(fill_spec))
+        yr_data[fill_spec, `:=`(dlog_actual = dlog_spec_tmp,
+                                rate_source = "specialty_report")]
+      yr_data[, dlog_spec_tmp := NULL]
     }
 
     # ---- 2. Geographic rates - non-specialty parcels only -------------------
