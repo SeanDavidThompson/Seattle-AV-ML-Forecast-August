@@ -1,0 +1,25 @@
+# ---- Data: parcel extracts, assessor reports, caches, model artefacts ----
+# Nothing under data/ is committed (KCA parcel data, PDF area reports,
+# CoStar/NWMLS inputs, cached panels, trained models, outputs).
+data/
+
+# ---- Generated outputs anywhere in the tree ----
+outputs/
+output/
+
+# ---- Serialised R objects, tabular data, assessor PDFs ----
+*.rds
+*.RDS
+*.RData
+*.rda
+*.csv
+*.pdf
+
+# ---- R session / IDE noise ----
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+.Renviron
+.DS_Store
+Thumbs.db
