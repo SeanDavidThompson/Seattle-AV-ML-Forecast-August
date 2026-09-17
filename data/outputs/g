@@ -1,3 +1,34 @@
+# Res / com forecast-panel parcel overlap at TY2026.  Read-only.
+suppressPackageStartupMessages(library(data.table))
+cache <- here::here("data", "cache")
+res <- as.data.table(readRDS(file.path(cache, "panel_tbl_2006_2031_forecasted_baseline_res.rds")))
+com <- as.data.table(readRDS(file.path(cache, "panel_tbl_2006_2031_forecasted_baseline_com.rds")))
+
+av_of <- function(dt) {          # certified TY2026 AV: total_assessed, else land + imps
+  if ("total_assessed" %in% names(dt) && any(!is.na(dt$total_assessed))) return(dt$total_assessed)
+  fifelse(is.na(dt$appr_land_val), 0, dt$appr_land_val) + fifelse(is.na(dt$appr_imps_val), 0, dt$appr_imps_val)
+}
+r26 <- res[tax_yr == 2026L, .(pid = gsub("-", "", parcel_id), av_res = av_of(.SD))]
+c26 <- com[tax_yr == 2026L, .(pid = gsub("-", "", parcel_id), av_com = av_of(.SD))]
+r26 <- unique(r26, by = "pid"); c26 <- unique(c26, by = "pid")
+
+ov <- merge(r26, c26, by = "pid")
+cat(sprintf("res TY2026 parcels: %s | com TY2026 parcels: %s\n", format(nrow(r26), big.mark = ","), format(nrow(c26), big.mark = ",")))
+cat(sprintf("overlap: %s parcels (%.1f%% of res, %.1f%% of com)\n", format(nrow(ov), big.mark = ","),
+            100 * nrow(ov) / nrow(r26), 100 * nrow(ov) / nrow(c26)))
+cat(sprintf("TY2026 AV of overlap: res panel $%.3fB | com panel $%.3fB | AV disagrees on %s parcels\n",
+            sum(ov$av_res, na.rm = TRUE) / 1e9, sum(ov$av_com, na.rm = TRUE) / 1e9,
+            format(sum(abs(ov$av_res - ov$av_com) > 1, na.rm = TRUE), big.mark = ",")))
+
+# What are they?  EXTR_Parcel PropType for the overlapping parcels
+pp <- here::here("data", "kca", get0("kca_date_data_extracted", ifnotfound = NA), "EXTR_Parcel.csv")
+if (file.exists(pp)) {
+  xp <- fread(pp, select = c("Major", "Minor", "PropType", "PresentUse"), colClasses = "character")
+  xp[, pid := paste0(formatC(Major, width = 6, flag = "0"), formatC(Minor, width = 4, flag = "0"))]
+  ov <- merge(ov, unique(xp[, .(pid, PropType, PresentUse)], by = "pid"), by = "pid", all.x = TRUE)
+  print(ov[, .(parcels = .N, av_res_B = sum(av_res, na.rm = TRUE) / 1e9), by = PropType][order(-parcels)])
+  print(ov[, .(parcels = .N, av_res_B = sum(av_res, na.rm = TRUE) / 1e9), by = PresentUse][order(-parcels)][1:15])
+} else cat("(EXTR_Parcel.csv not found - set kca_date_data_extracted to break the overlap down by PropType)\n")
  # area_report_import.R -----------------------------------------------------
 > # Scrape actual assessed-value growth rates from KCA area revalue reports.
 > #
