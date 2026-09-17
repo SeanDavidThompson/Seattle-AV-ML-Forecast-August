@@ -1,4 +1,4 @@
-> # area_report_import.R -----------------------------------------------------
+ # area_report_import.R -----------------------------------------------------
 > # Scrape actual assessed-value growth rates from KCA area revalue reports.
 > #
 > # Inputs:  PDF area reports placed in
@@ -14,7 +14,14 @@
 > #                Areas Report ... Commercial Revalue").  Actuals come from the
 > #                per-Geo-Area "Change in Total Assessed Value" / "Population -
 > #                Parcel Summary Data" table; values are TOTAL AV.
-> #            (3) Commercial specialty reports (Major Office 280, etc.).
+> #            (3) Commercial specialty reports (Major Office 280, Apartments 100,
+> #                etc.).  Two headline layouts are recognised: "CHANGE IN TOTAL
+> #                ASSESSED VALUE" and the "Population Value Summary" table
+> #                (Land / Improvements / Total).  Where the report has a
+> #                "Percent Change - Total Values" table by region and a
+> #                "Project Inventory - Regions and Neighborhoods" table (the
+> #                Apartments report), one row per region is added with the
+> #                neighborhoods that region covers.
 > #            (4) Residential condominium reports (Specialty 700, e.g. "Capitol
 > #                Hill / Areas: 35, 40, 65, 70, AND 85 / Residential Condominium
 > #                Revalue for 2026 Assessment Roll").  Actuals come from the
@@ -42,6 +49,7 @@
 > #   area           int    KCA appraisal area / geo area code (NA for condo/specialty)
 > #   spec_area      int    specialty area (700 for condo reports)
 > #   spec_sub       int    specialty submarket
+> #   spec_region    int    specialty region (Apartments: 1 Central/North, 2 South, 3 East)
 > #   basis          chr    "population" (full roll) | "sales" (ratio sample,
 > #                         res and condo reports)
 > #   av_prev        num    prior-year AV  (res/condo = mean per parcel; com = total)
@@ -49,11 +57,12 @@
 > #   delta          num    av_curr - av_prev
 > #   pct_change     num    reported % change as a decimal (e.g. -0.047)
 > #   pct_change_chk num    delta / av_prev, recomputed for validation
-> #   land_prev, land_curr, imps_prev, imps_curr   num  component AV (condo only)
-> #   pct_land, pct_imps    num  reported component % change as a decimal (condo only)
+> #   land_prev, land_curr, imps_prev, imps_curr   num  component AV (condo, specialty)
+> #   pct_land, pct_imps    num  reported component % change as a decimal (condo, specialty)
 > #   n_parcels      int    improved parcels in the population (condo only)
-> #   nbhds          chr    comma-separated condo neighborhoods covered (condo only)
-> #   area_name      chr    report area name, e.g. "Capitol Hill" (condo only)
+> #   nbhds          chr    comma-separated neighborhoods covered (condo reports and
+> #                         specialty regions)
+> #   area_name      chr    report area / region name, e.g. "Capitol Hill", "South"
 > #   report_id      chr    PDF file stem, e.g. "700_01"
 > #   district       chr    first title line of the report
 > #   source_file    chr    PDF file name
@@ -177,6 +186,111 @@
 +   dplyr::bind_rows(out)
 + }
 > 
+> # ---- Specialty helpers -------------------------------------------------------
+> # "Population Value Summary" table (Apartments and similar):
+> #                   Land             Improvements            Total
+> #   2025 Value   $25,448,216,024   $74,488,754,374   $99,936,970,398
+> #   2026 Value   $23,909,798,440   $70,282,266,551   $94,192,064,991
+> #   Difference  ($1,538,417,584)  ($4,206,487,823)  ($5,744,905,407)
+> #    % Change        -6.05%           -5.65%            -5.75%
+> .spec_value_summary <- function(lines, window = 14) {
++   money <- "(\\(?-?\\$?\\s?\\(?-?[\\d,]{4,}\\)?)"
++   pct   <- "(\\(?[-+]?[\\d.]+\\)?)\\s?%"
++   hdr <- grep("Population\\s*.?\\s*Value\\s+Summary", lines, ignore.case = TRUE, perl = TRUE)
++   for (h in hdr) {
++     win  <- lines[seq(h + 1, min(h + window, length(lines)))]
++     r3   <- regmatches(win, regexec(paste0("^\\s*(\\d{4})\\s+Value\\s+", money, "\\s+",
++                                            money, "\\s+", money), win, perl = TRUE))
++     r3   <- r3[lengths(r3) == 5]
++     if (length(r3) < 2) next
++     yrs  <- as.integer(vapply(r3, `[`, "", 2))
++     prev <- .num(r3[[which.min(yrs)]][3:5])
++     curr <- .num(r3[[which.max(yrs)]][3:5])
++     pr   <- regmatches(win, regexec(paste0("^\\s*%\\s*Change\\s+", pct, "\\s+", pct, "\\s+", pct),
++                                     win, perl = TRUE))
++     pr   <- pr[lengths(pr) == 4]
++     pc   <- if (length(pr)) .num(pr[[1]][2:4]) / 100 else curr / prev - 1
++     return(list(prev = prev, curr = curr, pct = pc))
++   }
++   NULL
++ }
+> 
+> # "Percent Change - Total Values" by region, plus the region -> neighborhood
+> # inventory.  Returns NULL when the report has neither.
+> .spec_regions <- function(lines) {
++   j <- grep("Percent\\s+Change\\s*.?\\s*Total\\s+Values", lines, ignore.case = TRUE, perl = TRUE)
++   if (!length(j)) return(NULL)
++   reg <- list()
++   for (i in seq(j[1] + 1, min(j[1] + 10, length(lines)))) {
++     g <- regmatches(lines[i], regexec("^\\s*([A-Za-z][A-Za-z /&-]*?)\\s+(\\(?[-+]?[\\d.]+\\)?)\\s?%\\s*$",
++                                       lines[i], perl = TRUE))[[1]]
++     if (length(g) == 3 && !grepl("^Region", g[2], ignore.case = TRUE))
++       reg[[length(reg) + 1]] <- data.frame(region = trimws(g[2]), pct = .num(g[3]) / 100)
++   }
++   if (!length(reg)) return(NULL)
++   reg <- do.call(rbind, reg)
++   county <- reg$pct[grepl("^County", reg$region, ignore.case = TRUE)]
++   reg <- reg[!grepl("^County", reg$region, ignore.case = TRUE), , drop = FALSE]
++   if (!nrow(reg)) return(list(regions = NULL, county = county))
++ 
++   # Region codes: "divided ... into three regions: Central (1), South (2), East (3)"
++   txt  <- paste(lines, collapse = " ")
++   defs <- regmatches(txt, gregexpr("([A-Z][a-z]+)\\s*\\((\\d)\\)", txt, perl = TRUE))[[1]]
++   code_of <- setNames(as.integer(sub(".*\\((\\d)\\)", "\\1", defs)),
++                       tolower(sub("\\s*\\(.*", "", defs)))
++   reg$code <- NA_integer_
++   for (k in seq_len(nrow(reg))) {
++     hit <- names(code_of)[vapply(names(code_of), function(nm)
++       grepl(nm, tolower(reg$region[k]), fixed = TRUE), logical(1))]
++     if (length(hit)) reg$code[k] <- code_of[[hit[1]]]
++   }
++   reg$code[is.na(reg$code)] <- seq_len(nrow(reg))[is.na(reg$code)]   # fall back to order
++ 
++   # Neighborhood inventory: columns headed R1 / R2 / R3
++   reg$nbhds <- NA_character_
++   inv <- grep("Project\\s+Inventory", lines, ignore.case = TRUE)
++   if (length(inv)) {
++     hdr_i <- inv[1] + which(grepl("\\bR1\\b.*\\bR2\\b", lines[(inv[1] + 1):min(inv[1] + 5, length(lines))]))[1]
++     if (!is.na(hdr_i)) {
++       hdr   <- lines[hdr_i]
++       cuts  <- vapply(paste0("\\bR", 2:9, "\\b"), function(pt) regexpr(pt, hdr, perl = TRUE)[1], integer(1))
++       cuts  <- cuts[cuts > 0] - 5
++       end_i <- hdr_i + which(grepl("Total\\s*:", lines[(hdr_i + 1):length(lines)]))[1]
++       if (is.na(end_i)) end_i <- min(hdr_i + 60, length(lines))
++       trip  <- "(\\d{1,3})\\s+([A-Za-z][A-Za-z /.&'-]*?)\\s+(\\d[\\d,]*)(?=\\s|$)"
++       nb <- list()
++       for (i in seq(hdr_i + 1, end_i - 1)) {
++         ln <- lines[i]
++         mm <- gregexpr(trip, ln, perl = TRUE)[[1]]
++         if (mm[1] < 0) next
++         for (q in seq_along(mm)) {
++           seg   <- substr(ln, mm[q], mm[q] + attr(mm, "match.length")[q] - 1)
++           piece <- regmatches(seg, regexec(trip, seg, perl = TRUE))[[1]]
++           nb[[length(nb) + 1]] <- data.frame(code = 1L + sum(mm[q] >= cuts),
++                                              nbhd = as.integer(piece[2]),
++                                              projects = as.integer(gsub(",", "", piece[4])))
++         }
++       }
++       if (length(nb)) {
++         nb <- do.call(rbind, nb)
++         # Check against the "R 1 Total: 4,652" footers
++         tot <- regmatches(lines[end_i], gregexpr("R\\s*(\\d)\\s*Total:\\s*([\\d,]+)", lines[end_i], perl = TRUE))[[1]]
++         for (t in tot) {
++           rc <- as.integer(sub("R\\s*(\\d).*", "\\1", t))
++           want <- as.integer(gsub(",", "", sub(".*Total:\\s*", "", t)))
++           got  <- sum(nb$projects[nb$code == rc])
++           if (!identical(got, want))
++             warning(sprintf("Region %d inventory parsed %d projects, report total is %d", rc, got, want),
++                     call. = FALSE)
++         }
++         for (k in seq_len(nrow(reg)))
++           reg$nbhds[k] <- paste(sort(nb$nbhd[nb$code == reg$code[k]]), collapse = ",")
++       }
++     }
++   }
++   list(regions = reg, county = county)
++ }
+> 
 > # ---- Parser: commercial SPECIALTY reports ---------------------------------
 > # e.g. "Major Office Buildings / Area: 280 / Commercial Revalue for 2026
 > # Assessment Roll".  These cover a countywide population (Major Office 280,
@@ -235,6 +349,64 @@
 +     if (length(out) > 0) break
 +   }
 + 
++   # (a2) "Population Value Summary" headline (Apartments layout)
++   if (length(out) == 0) {
++     vs <- .spec_value_summary(lines)
++     if (!is.null(vs)) {
++       out[[length(out) + 1]] <- tibble::tibble(
++         prop_type   = "com",
++         report_kind = "specialty",
++         spec_area   = spec_no,
++         spec_sub    = NA_integer_,
++         area        = NA_integer_,
++         basis       = "population",
++         av_prev     = vs$prev[3],
++         av_curr     = vs$curr[3],
++         delta       = vs$curr[3] - vs$prev[3],
++         pct_change  = vs$pct[3],
++         land_prev   = vs$prev[1],
++         land_curr   = vs$curr[1],
++         imps_prev   = vs$prev[2],
++         imps_curr   = vs$curr[2],
++         pct_land    = vs$pct[1],
++         pct_imps    = vs$pct[2],
++         source_file = src
++       )
++     }
++   }
++ 
++   # (a3) regional rates and their neighborhoods
++   rg <- .spec_regions(lines)
++   if (!is.null(rg)) {
++     if (length(out) == 0 && length(rg$county)) {
++       out[[length(out) + 1]] <- tibble::tibble(
++         prop_type = "com", report_kind = "specialty", spec_area = spec_no,
++         spec_sub = NA_integer_, area = NA_integer_, basis = "population",
++         av_prev = NA_real_, av_curr = NA_real_, delta = NA_real_,
++         pct_change = rg$county[1], source_file = src)
++     }
++     if (!is.null(rg$regions)) {
++       for (k in seq_len(nrow(rg$regions))) {
++         out[[length(out) + 1]] <- tibble::tibble(
++           prop_type   = "com",
++           report_kind = "specialty_region",
++           spec_area   = spec_no,
++           spec_sub    = NA_integer_,
++           spec_region = as.integer(rg$regions$code[k]),
++           area        = NA_integer_,
++           basis       = "population",
++           av_prev     = NA_real_,
++           av_curr     = NA_real_,
++           delta       = NA_real_,
++           pct_change  = rg$regions$pct[k],
++           nbhds       = rg$regions$nbhds[k],
++           area_name   = rg$regions$region[k],
++           source_file = src
++         )
++       }
++     }
++   }
++ 
 +   # (b) per-submarket rows:
 +   #   "280-120 Central Business District 69 $ 7,457,718,200 $ 108,082,872 -8.66%"
 +   sub_pat <- paste0(
@@ -265,8 +437,9 @@
 +   if (length(out) == 0) return(NULL)
 +   # The breakdown table is reprinted on the per-region pages; keep one row per
 +   # submarket so the duplicate check downstream stays meaningful.
-+   dplyr::distinct(dplyr::bind_rows(out),
-+                   report_kind, spec_area, spec_sub, .keep_all = TRUE)
++   res <- dplyr::bind_rows(out)
++   if (!"spec_region" %in% names(res)) res$spec_region <- NA_integer_
++   dplyr::distinct(res, report_kind, spec_area, spec_sub, spec_region, .keep_all = TRUE)
 + }
 > 
 > # ---- Parser: residential CONDOMINIUM reports (Specialty 700) -------------
@@ -443,8 +616,16 @@
 +               100 * pop$pct_land[1], 100 * pop$pct_imps[1],
 +               format(pop$n_parcels[1], big.mark = ","))
 +     } else if (route == "specialty") {
-+       paste0("spec ", paste(unique(res$spec_area), collapse = ","), ", ",
-+              nrow(res), " rows")
++       hl  <- res[res$report_kind == "specialty", ]
++       rg  <- res[res$report_kind == "specialty_region", ]
++       paste0("spec ", paste(unique(res$spec_area), collapse = ","),
++              if (nrow(hl)) sprintf(", %+.2f%% total", 100 * hl$pct_change[1]) else "",
++              if (nrow(hl) && "pct_land" %in% names(hl) && !is.na(hl$pct_land[1]))
++                sprintf(" (land %+.2f%%, imps %+.2f%%)", 100 * hl$pct_land[1], 100 * hl$pct_imps[1]) else "",
++              if (nrow(rg)) paste0("; regions: ", paste(sprintf("R%d %s %+.2f%% [%d nbhds]",
++                rg$spec_region, rg$area_name, 100 * rg$pct_change,
++                lengths(strsplit(dplyr::coalesce(rg$nbhds, ""), ","))), collapse = ", ")) else "",
++              "; ", nrow(res), " rows")
 +     } else {
 +       paste0(dplyr::n_distinct(res$area), " areas")
 +     }
@@ -462,11 +643,13 @@
 +       dplyr::select(assessment_yr, prop_type, report_kind,
 +                     area, spec_area, spec_sub, basis,
 +                     av_prev, av_curr, delta, pct_change, pct_change_chk,
-+                     dplyr::any_of(c("land_prev", "land_curr", "imps_prev", "imps_curr",
++                     dplyr::any_of(c("spec_region",
++                                     "land_prev", "land_curr", "imps_prev", "imps_curr",
 +                                     "pct_land", "pct_imps", "n_parcels",
 +                                     "nbhds", "area_name")),
 +                     report_id, district, source_file) |>
-+       dplyr::arrange(prop_type, report_kind, area, spec_area, spec_sub, report_id, basis)
++       dplyr::arrange(prop_type, report_kind, area, spec_area, spec_sub,
++                      dplyr::across(dplyr::any_of("spec_region")), report_id, basis)
 + 
 +     # ---- Validation -------------------------------------------------------
 +     # Reported vs recomputed % change (res reports round means to $100s,
@@ -503,7 +686,7 @@
 + 
 +     dupes <- area_report_actuals |>
 +       dplyr::count(prop_type, report_kind, area, spec_area, spec_sub,
-+                    dplyr::across(dplyr::any_of("nbhds")), basis) |>
++                    dplyr::across(dplyr::any_of(c("spec_region", "nbhds"))), basis) |>
 +       dplyr::filter(n > 1)
 +     if (nrow(dupes) > 0)
 +       warning("Duplicate entries across reports (same kind/area/basis): ",
@@ -542,7 +725,9 @@
 +       dplyr::mutate(cell = dplyr::case_when(
 +         prop_type == "condo" ~ report_id,
 +         !is.na(area)         ~ as.character(area),
-+         TRUE                 ~ paste(report_kind, spec_area, spec_sub))) |>
++         TRUE                 ~ paste(report_kind, spec_area, spec_sub,
++                                      if ("spec_region" %in% names(area_report_actuals))
++                                        spec_region else NA))) |>
 +       dplyr::group_by(prop_type) |>
 +       dplyr::summarise(
 +         n_areas  = dplyr::n_distinct(cell),
@@ -564,11 +749,12 @@
   ✅ 006-007-.pdf [res]: 2 areas
   ✅ 008-044-046-.pdf [res]: 3 areas
   ✅ 011-012-013-014-016-017-018-.pdf [res]: 17 areas
-  ✅ 015.pdf [specialty]: spec 15, 1 rows
+  ✅ 015.pdf [specialty]: spec 15, -2.10% total; 1 rows
   ✅ 019-042-043-082-.pdf [res]: 4 areas
-  ✅ 250.pdf [specialty]: spec 250, 1 rows
-  ✅ 413.pdf [specialty]: spec 413, 1 rows
-  ✅ 520.PDF [specialty]: spec 520, 1 rows
+  ✅ 100.pdf [specialty]: spec 100, -5.75% total (land -6.05%, imps -5.65%); regions: R1 Central / North -8.36% [33 nbhds], R2 South -10.09% [29 nbhds], R3 East +2.14% [11 nbhds]; 4 rows
+  ✅ 250.pdf [specialty]: spec 250, +0.43% total; 1 rows
+  ✅ 413.pdf [specialty]: spec 413, +0.51% total; 1 rows
+  ✅ 520.PDF [specialty]: spec 520, +1.02% total; 1 rows
   ✅ 700_01.pdf [condo]: Capitol Hill, nbhds 35,40,65,70,85, -5.7% total (land -3.1%, imps -7.0%), 8,015 units
   ✅ 700_02.pdf [condo]: Downtown Seattle, nbhds 5,10,25,30, -3.7% total (land -44.3%, imps +5.1%), 9,090 units
   ✅ 700_03.pdf [condo]: Queen Anne / Magnolia, nbhds 15,20,45,50,55,60,75,80, -2.8% total (land -5.3%, imps -1.3%), 6,787 units
@@ -577,23 +763,22 @@
   ✅ 700_06.pdf [condo]: South King County, nbhds 240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320,325,470, -4.8% total (land +1.8%, imps -5.8%), 19,065 units
   ✅ 700_07.pdf [condo]: South Seattle, nbhds 160,165,170,175,185,190,195,200,205,210,215,220,225,230,235,475, -6.5% total (land +0.1%, imps -8.9%), 6,234 units
   ✅ 700_08.pdf [condo]: Northwest King County, nbhds 90,95,100,105,110,115,120,125,130,135,140,145,150,155,405,410,415,420, -2.4% total (land +3.6%, imps -5.2%), 13,811 units
-  ✅ 800.PDF [specialty]: spec 800, 1 rows
+  ✅ 800.PDF [specialty]: spec 800, -12.29% total; 1 rows
   ✅ central.pdf [com]: 8 areas
   ✅ north.pdf [com]: 8 areas
   ✅ south.pdf [com]: 7 areas
-  specialty rates parsed for areas: 15, 250, 413, 520, 800
+  specialty rates parsed for areas: 15, 100, 250, 413, 520, 800
   💾 cached: area_report_actuals_2026.rds
   💾 csv: area_report_actuals_2026.csv
   Actual 2025→2026 AV growth (population basis):
-    com   28 cells | min -31.0% | median +0.9% | max +7.5%
+    com   32 cells | min -31.0% | median +0.7% | max +7.5%
     condo  8 cells | min -6.5% | median -4.8% | max -2.4%
     res   30 cells | min -5.8% | median -1.4% | max +2.0%
 Warning messages:
-1: No area growth table recognised in: 100.pdf (routed as specialty) 
-2: No area growth table recognised in: 153.pdf (routed as specialty) 
-3: No area growth table recognised in: 500.pdf (routed as specialty) 
-4: No area growth table recognised in: 510.pdf (routed as specialty) 
-5: Reported %-change deviates >0.5pp from recomputed value for 1 row(s) — check parsing:
+1: No area growth table recognised in: 153.pdf (routed as specialty) 
+2: No area growth table recognised in: 500.pdf (routed as specialty) 
+3: No area growth table recognised in: 510.pdf (routed as specialty) 
+4: Reported %-change deviates >0.5pp from recomputed value for 1 row(s) — check parsing:
   area NA (015.pdf) 
 > 
 > message("area_report_import.R complete.")
@@ -720,6 +905,13 @@ area_report_import.R complete.
 +   anchor_tol_rate  = 0.0005,  # parcel counts as anchored if within 0.05pp of its report rate
 +   anchor_tol_usd   = 1000,    # ...or within 1,000 dollars (assessor rounding)
 +   anchor_cell_share = 0.9,    # ...and at least this share of its cell hits the rate too
++   min_cell_parcels = 3L,      # cells smaller than this, or below min_cell_av, stay in the CSV
++   min_cell_av      = 25e6,    #   but are left out of summaries and charts (single-parcel noise)
++ 
++   # KCA EXTR_Parcel.csv: supplies the condo neighborhood (SpecSubArea where
++   # SpecArea = 700, joined on Major) and the PropType / SpecArea / PresentUse
++   # breakdown for flagged residential cells. NULL = search data/kca, then data/.
++   extr_parcel_path = NULL,
 +   pct_units        = "auto",  # "auto", "percent", or "fraction"
 + 
 +   # Column overrides for area_report_actuals. NULL = auto-detect.
@@ -792,6 +984,47 @@ area_report_import.R complete.
 + }
 > 
 > pos_na <- function(x) fifelse(!is.na(x) & x > 0, x, NA_real_)
+> 
+> # Left-pad all-digit ids with zeros ("160" -> "000160")
+> pad0 <- function(x, w) {
++   x <- trimws(as.character(x))
++   short <- !is.na(x) & nchar(x) < w & grepl("^[0-9]+\\z", x, perl = TRUE)
++   x[short] <- paste0(strrep("0", w - nchar(x[short])), x[short])
++   x
++ }
+> 
+> load_extr_parcel <- function() {
++   path <- CFG_BT[["extr_parcel_path"]]
++   if (is.null(path)) {
++     for (d in c(here("data", "kca"), here("data"))) {
++       if (!dir.exists(d)) next
++       hits <- list.files(d, pattern = "^EXTR_Parcel.*[.]csv", recursive = TRUE,
++                          full.names = TRUE, ignore.case = TRUE)
++       hits <- hits[!grepl("backtest", hits, fixed = TRUE)]
++       if (length(hits)) {
++         path <- hits[order(file.info(hits)[["mtime"]], decreasing = TRUE)][1]
++         break
++       }
++     }
++   }
++   if (is.null(path) || !file.exists(path)) {
++     message("  EXTR_Parcel.csv not found (set CFG_BT[['extr_parcel_path']]); ",
++             "condo neighborhoods and res composition will be skipped.")
++     return(NULL)
++   }
++   hdr  <- names(fread(path, nrows = 0))
++   want <- c("Major", "Minor", "PropType", "Area", "SubArea", "SpecArea", "SpecSubArea", "PresentUse")
++   have <- hdr[tolower(hdr) %in% tolower(want)]
++   xp <- fread(path, select = have, colClasses = "character", showProgress = FALSE)
++   setnames(xp, have, want[match(tolower(have), tolower(want))])
++   for (cn in setdiff(want, names(xp))) set(xp, j = cn, value = NA_character_)
++   xp[, `:=`(Major = pad0(Major, 6), Minor = pad0(Minor, 4))]
++   xp[, pid := paste0(Major, Minor)]
++   xp[, SpecArea := norm_key(SpecArea)]
++   xp[, SpecSubArea := norm_key(SpecSubArea)]
++   message(sprintf("  EXTR_Parcel: %s rows from %s", format(nrow(xp), big.mark = ","), path))
++   xp
++ }
 > 
 > ratio_g <- function(a0, a1) {
 +   ok <- !is.na(a0) & !is.na(a1)
@@ -900,6 +1133,7 @@ area_report_import.R complete.
 +   col[["nbhds"]]     <- pick_col(nms, NULL, c("^nbhds?\\z", "^neighbou?rhoods?\\z"))
 +   col[["area_name"]] <- pick_col(nms, NULL, c("^area_name\\z"))
 +   col[["n_parcels"]] <- pick_col(nms, NULL, c("^n_parcels\\z"))
++   col[["spec_region"]] <- pick_col(nms, NULL, c("^spec_region\\z"))
 +   for (side in c("prev", "cur")) {
 +     col[[paste0(side, "_total")]] <- pick_col(nms, ov[[paste0(side, "_total")]], lvl(side, "(total|tot|av)"))
 +     col[[paste0(side, "_land")]]  <- pick_col(nms, ov[[paste0(side, "_land")]],  lvl(side, "land"))
@@ -928,7 +1162,8 @@ area_report_import.R complete.
 +     report_id = col_chr(raw, col[["report_id"]]),
 +     nbhds     = gsub("[[:space:]]", "", col_chr(raw, col[["nbhds"]])),
 +     area_name = col_chr(raw, col[["area_name"]]),
-+     act_n     = to_num(col_chr(raw, col[["n_parcels"]]))
++     act_n     = to_num(col_chr(raw, col[["n_parcels"]])),
++     spec_region = norm_key(col_chr(raw, col[["spec_region"]]))
 +   )
 + 
 +   # Percent vs fraction
@@ -978,11 +1213,13 @@ area_report_import.R complete.
 +   act[, `:=`(
 +     level = fcase(kind == "geo", "area",
 +                   kind == "condo", "condo_area",
++                   !is.na(spec_region), "spec_region",
 +                   !is.na(spec_sub), "spec_sub",
 +                   default = "spec"),
 +     key   = fifelse(kind == "geo", area,
 +                     fifelse(kind == "condo", fcoalesce(report_id, nbhds),
-+                             fifelse(!is.na(spec_sub), paste0(spec_area, "|", spec_sub), spec_area))))]
++                             fifelse(!is.na(spec_region), paste0(spec_area, "|R", spec_region),
++                                     fifelse(!is.na(spec_sub), paste0(spec_area, "|", spec_sub), spec_area)))))]
 +   act <- act[!is.na(key)]
 + 
 +   dups <- act[, .N, by = .(track, kind, key)][N > 1]
@@ -993,11 +1230,12 @@ area_report_import.R complete.
 +   }
 +   act <- unique(act, by = c("track", "kind", "key"))
 + 
-+   message(sprintf("  Actuals kept: %d of %d rows  (res areas %d | com areas %d | specialty %d | condo areas %d)",
++   message(sprintf("  Actuals kept: %d of %d rows  (res areas %d | com areas %d | specialty %d, of which regions %d | condo areas %d)",
 +                   nrow(act), n0,
 +                   act[track == "res" & kind == "geo", .N],
 +                   act[track == "com" & kind == "geo", .N],
 +                   act[kind == "specialty", .N],
++                   act[level == "spec_region", .N],
 +                   act[kind == "condo", .N]))
 +   if (n0 > 0 && !any(act[["track"]] == "condo")) {
 +     message("  NOTE: no condo reports in the actuals. Re-run area_report_import.R with the ",
@@ -1017,7 +1255,16 @@ area_report_import.R complete.
 +          by = "nbhd_k")
 + }
 > 
-> build_matched <- function(path, trk, act = NULL) {
+> # Long map of (specialty, neighborhood) -> region key
+> spec_region_map <- function(act) {
++   a <- act[level == "spec_region" & !is.na(nbhds) & nbhds != ""]
++   if (!nrow(a)) return(data.table(spec_k = character(), ssub_k = character(), key = character()))
++   a[, spec_k := sub("\\|.*", "", key)]
++   unique(a[, .(ssub_k = norm_key(unlist(strsplit(nbhds, ",", fixed = TRUE)))), by = .(key, spec_k)],
++          by = c("spec_k", "ssub_k"))
++ }
+> 
+> build_matched <- function(path, trk, act = NULL, xp = NULL) {
 +   if (!file.exists(path)) {
 +     message("  SKIP (missing): ", path)
 +     return(NULL)
@@ -1075,6 +1322,25 @@ area_report_import.R complete.
 +     land = land, imps = imps, tot = tot
 +   )
 +   for (cn in nb_cands) set(s, j = paste0("nbc__", cn), value = norm_key(col_chr(p, cn)))
++   if (trk == "com" && !is.null(xp)) {
++     # Specialty neighborhood (e.g. apartment nbhd 65) from EXTR_Parcel where the panel lacks it
++     n_before <- sum(!is.na(s[["ssub_k"]]))
++     s[, pid10 := pad0(pid, 10)]
++     s[xp, on = .(pid10 = pid),
++       ssub_k := fifelse(is.na(ssub_k) & spec_k %in% i.SpecArea, i.SpecSubArea, ssub_k)]
++     s[, pid10 := NULL]
++     message(sprintf("    spec_sub filled from EXTR_Parcel: %s -> %s rows",
++                     format(n_before, big.mark = ","), format(sum(!is.na(s[["ssub_k"]])), big.mark = ",")))
++   }
++   if (trk == "condo" && !is.null(xp) && is.null(pc[["condo_nbhd"]])) {
++     # Condo units are not rows in EXTR_Parcel; the complex (Major) is.
++     xm <- xp[, .(kca_spec_sub = SpecSubArea[SpecArea %in% "700"][1],
++                  kca_subarea  = norm_key(SubArea[1])), by = Major]
++     s[, Major := substr(pad0(pid, 10), 1, 6)]
++     s[xm, on = "Major", `:=`(nbc__kca_SpecSubArea = i.kca_spec_sub,
++                              nbc__kca_SubArea     = i.kca_subarea)]
++     s[, Major := NULL]
++   }
 +   rm(p, land_a, land_f, land_p, imps_a, imps_f, imps_p, tot_a, tot_p, land, imps, tot, tot_fb)
 +   gc(verbose = FALSE)
 + 
@@ -1130,9 +1396,9 @@ area_report_import.R complete.
 +     grepl("^model|^ml\\z|lgb", src, ignore.case = TRUE, perl = TRUE), "model",
 +     default = "other")]
 + 
-+   message(sprintf("    matched %s of %s %s parcels | area=%s spec=%s src=%s",
++   message(sprintf("    matched %s of %s %s parcels | area=%s spec=%s spec_sub=%s src=%s",
 +                   format(nrow(m), big.mark = ","), format(n_fc, big.mark = ","), trk,
-+                   area_c, spec_c, src_c))
++                   area_c, spec_c, ssub_c, src_c))
 +   if (!is.na(src_c)) {
 +     sv <- m[, .N, by = src][order(-N)][seq_len(min(.N, 8))]
 +     message("    rate-source values: ",
@@ -1216,7 +1482,7 @@ area_report_import.R complete.
 +      by = by_cols]
 + }
 > 
-> make_cells <- function(m, trk) {
+> make_cells <- function(m, trk, act = NULL) {
 +   out <- list()
 +   if (trk == "res") {
 +     g <- summ_cells(m[!is.na(area_k)], "area_k")
@@ -1239,6 +1505,15 @@ area_report_import.R complete.
 +       s1[, `:=`(kind = "specialty", level = "spec", key = spec_k)]
 +       s1[, spec_k := NULL]
 +       out[["spec"]] <- s1
++     }
++     rmap <- if (is.null(act)) NULL else spec_region_map(act)
++     if (!is.null(rmap) && nrow(rmap)) {
++       mr <- merge(m[is_spec == TRUE & !is.na(ssub_k)], rmap, by = c("spec_k", "ssub_k"))
++       s3 <- summ_cells(mr, "key")
++       if (!is.null(s3)) {
++         s3[, `:=`(kind = "specialty", level = "spec_region")]
++         out[["spec_region"]] <- s3
++       }
 +     }
 +     s2 <- summ_cells(m[is_spec == TRUE & !is.na(ssub_k)], c("spec_k", "ssub_k"))
 +     if (!is.null(s2)) {
@@ -1285,6 +1560,8 @@ area_report_import.R complete.
 +   }
 + 
 +   message("\n[2] Forecast panels")
++   xp <- load_extr_parcel()
++   comp_res <- NULL
 +   cell_list <- list()
 +   city_list <- list()
 +   cov_list  <- list()
@@ -1292,7 +1569,7 @@ area_report_import.R complete.
 +     for (sc in CFG_BT[["scenarios"]]) {
 +       for (trk in union(CFG_BT[["tracks_cells"]], CFG_BT[["tracks_context"]])) {
 +         path <- file.path(run_dirs[[rn]], sprintf(CFG_BT[["panel_pattern"]], sc, trk))
-+         m <- build_matched(path, trk, act)
++         m <- build_matched(path, trk, act, xp)
 +         if (is.null(m) || !nrow(m)) next
 + 
 +         if (trk %in% CFG_BT[["tracks_context"]]) {
@@ -1303,7 +1580,19 @@ area_report_import.R complete.
 + 
 +         if (trk %in% CFG_BT[["tracks_cells"]]) {
 +           if (rn == names(run_dirs)[1] && sc == prim_sc) {
-+             cv <- make_cells(m, trk)
++             if (trk == "res" && !is.null(xp)) {
++               # What kind of property sits in each residential area cell
++               rc <- merge(m[, .(pid = pad0(pid, 10), area_k, tot0)],
++                           xp[, .(pid, PropType, SpecArea, PresentUse, kca_area = Area)],
++                           by = "pid", all.x = TRUE)
++               comp_res <- rc[, .(n = .N, av_bn = sum(tot0) / 1e9),
++                              by = .(area_k, PropType, SpecArea, PresentUse, kca_area)]
++               comp_res[, av_share := av_bn / sum(av_bn), by = area_k]
++               setorder(comp_res, area_k, -av_bn)
++               fwrite(comp_res, out_path("area_backtest_res_composition.csv"))
++               rm(rc)
++             }
++             cv <- make_cells(m, trk, act)
 +             if (!is.null(cv) && nrow(cv)) {
 +               cov_list[[length(cov_list) + 1]] <- cv[, .(track = trk, kind, level, key,
 +                                                          n_parcels_all = n_parcels,
@@ -1318,7 +1607,7 @@ area_report_import.R complete.
 +                  anchor_qa  = m[src_class == "report"])
 +           }
 +           for (md in names(subsets)) {
-+             cl <- make_cells(subsets[[md]], trk)
++             cl <- make_cells(subsets[[md]], trk, act)
 +             if (is.null(cl) || !nrow(cl)) next
 +             cl[, `:=`(run = rn, mode = md, scenario = sc, track = trk)]
 +             cell_list[[length(cell_list) + 1]] <- cl
@@ -1375,8 +1664,12 @@ area_report_import.R complete.
 +   cells[, cell_label := fifelse(track == "res", paste("Res", key),
 +                                 fifelse(track == "condo", paste("Condo", fcoalesce(area_name, key)),
 +                                         fifelse(kind == "geo", paste("Com", key),
-+                                                 paste("Spec", gsub("|", " / ", key, fixed = TRUE)))))]
-+   cells[, actual_scope := fifelse(kind == "specialty", "countywide specialty report", "area report")]
++                                                 fifelse(level == "spec_region",
++                                                  paste0("Spec ", sub("\\|.*", "", key), " ", fcoalesce(area_name, key)),
++                                                  paste("Spec", gsub("|", " / ", key, fixed = TRUE))))))]
++   cells[, actual_scope := fcase(level == "spec_region", "specialty region (multi-city)",
++                                 kind == "specialty", "countywide specialty report",
++                                 default = "area report")]
 +   cells[, mode_lab := factor(MODE_LABELS[mode], levels = MODE_LABELS)]
 +   cells[, cell_type := factor(cell_type, levels = names(TYPE_COLOURS))]
 + 
@@ -1397,10 +1690,17 @@ area_report_import.R complete.
 +   prim <- merge(cells[scenario == prim_sc], sc_wide, by = c("mode", keys), all.x = TRUE)
 + 
 +   # Keep spec_sub rows out of totals when a whole-specialty row exists (no double counting)
-+   prim[, spec_root := fifelse(level == "spec_sub", sub("\\|.*", "", key), NA_character_)]
-+   has_spec <- unique(prim[level == "spec", .(mode, track, spec_root = key)])
-+   prim[, in_summary := TRUE]
-+   if (nrow(has_spec)) prim[has_spec, on = .(mode, track, spec_root), in_summary := FALSE]
++   prim[, spec_root := fifelse(level %in% c("spec_sub", "spec_region"),
++                               sub("\\|.*", "", key), NA_character_)]
++   has_spec <- unique(prim[level == "spec", .(mode, track, spec_root = key, level = "spec_sub")])
++   has_reg  <- unique(prim[level == "spec_region", .(mode, track, key = spec_root, level = "spec")])
++   prim[, tiny := n_parcels < CFG_BT[["min_cell_parcels"]] | av_base < CFG_BT[["min_cell_av"]]]
++   prim[, in_summary := !tiny]
++   # Submarket rows would double count their specialty's headline row
++   if (nrow(has_spec)) prim[has_spec, on = .(mode, track, spec_root, level), in_summary := FALSE]
++   # Where regional rates exist, they replace the countywide headline (Seattle
++   # sits in specific regions)
++   if (nrow(has_reg)) prim[has_reg, on = .(mode, track, key, level), in_summary := FALSE]
 + 
 +   # Primary view per track: best available test for that track
 +   mode_pref  <- c("pure_model", "model_rows", "anchored_mixed", "anchor_qa")
@@ -1483,6 +1783,15 @@ area_report_import.R complete.
 +       message("  A residential panel mean far above the report mean means the parcels in that\n",
 +               "  cell are not the report's population: check where the res panel's area code\n",
 +               "  comes from (a commercial geo area number landing on a res area of the same number).")
++       if (!is.null(comp_res)) {
++         bad_keys <- sub("^Res ", "", cov_bad[grepl("^Res ", cell_label) & coverage_ratio > 1.5][["cell_label"]])
++         message("\n  What is in the flagged residential cells (largest groups by TY2026 AV;",
++                 " full table in area_backtest_res_composition.csv):")
++         print(comp_res[area_k %in% bad_keys][order(area_k, -av_bn)][
++           , head(.SD, 6), by = area_k][
++           , .(area_k, PropType, SpecArea, PresentUse, kca_area, n,
++               av_bn = round(av_bn, 2), av_share = round(av_share, 2))])
++       }
 +     }
 +   }
 +   if ("anchor_qa" %in% prim[["mode"]]) {
@@ -1497,10 +1806,10 @@ area_report_import.R complete.
 +   pct_lab <- label_percent(accuracy = 0.1)
 +   bn_lab  <- label_dollar(accuracy = 0.1, suffix = "B")
 +   cap <- paste0("Matched-parcel growth TY", CFG_BT[["base_yr"]], " to TY", CFG_BT[["target_yr"]],
-+                 ". Specialty actuals are countywide; model cells are Seattle only.")
++                 ". Specialty actuals are countywide or regional; model cells are Seattle only.")
 + 
 +   # 01 Model vs actual, all modes
-+   d1 <- prim[!is.na(pred_total) & !is.na(act_total)]
++   d1 <- prim[tiny == FALSE & !is.na(pred_total) & !is.na(act_total)]
 +   if (nrow(d1)) {
 +     lab1 <- d1[in_summary == TRUE][order(-abs(miss_usd)), head(.SD, CFG_BT[["label_top_n"]]), by = mode_lab]
 +     lim  <- range(c(d1[["pred_total"]], d1[["act_total"]]), na.rm = TRUE)
@@ -1532,7 +1841,7 @@ area_report_import.R complete.
 +   }
 + 
 +   # 02 Dumbbell by cell, primary mode
-+   d2 <- prim[is_primary == TRUE & !is.na(pred_total) & !is.na(act_total)]
++   d2 <- prim[is_primary == TRUE & tiny == FALSE & !is.na(pred_total) & !is.na(act_total)]
 +   if (nrow(d2)) {
 +     d2[, cell_label := factor(cell_label, levels = unique(d2[order(err_total)][["cell_label"]]))]
 +     pts <- rbind(d2[, .(cell_label, cell_type, x = act_total,  what = "KCA actual")],
@@ -1661,7 +1970,7 @@ xx_area_report_backtest.R
 [1] Area report actuals
   Actuals: area_report_actuals from .GlobalEnv
 
-  Actuals columns available: assessment_yr, prop_type, report_kind, area, spec_area, spec_sub, basis, av_prev, av_curr, delta, pct_change, pct_change_chk, land_prev, land_curr, imps_prev, imps_curr, pct_land, pct_imps, n_parcels, nbhds, area_name, report_id, district, source_file
+  Actuals columns available: assessment_yr, prop_type, report_kind, area, spec_area, spec_sub, basis, av_prev, av_curr, delta, pct_change, pct_change_chk, spec_region, land_prev, land_curr, imps_prev, imps_curr, pct_land, pct_imps, n_parcels, nbhds, area_name, report_id, district, source_file
   Detected mapping (override in CFG_BT[['act_cols']] if wrong):
     area         -> area
     prop_type    -> prop_type
@@ -1677,6 +1986,7 @@ xx_area_report_backtest.R
     nbhds        -> nbhds
     area_name    -> area_name
     n_parcels    -> n_parcels
+    spec_region  -> spec_region
     prev_total   -> av_prev
     prev_land    -> land_prev
     prev_imps    -> imps_prev
@@ -1684,95 +1994,120 @@ xx_area_report_backtest.R
     cur_land     -> land_curr
     cur_imps     -> imps_curr
   Rate units: fraction
-  Actuals kept: 66 of 104 rows  (res areas 30 | com areas 23 | specialty 5 | condo areas 8)
+  Actuals kept: 70 of 108 rows  (res areas 30 | com areas 23 | specialty 9, of which regions 3 | condo areas 8)
 
 NOTE: no unanchored run at \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/backtest/unanchored
       Using model-sourced parcels from the anchored run as the test set.
       See the header for the stash / use_area_actuals = FALSE workflow.
 
 [2] Forecast panels
+  EXTR_Parcel: 628,548 rows from \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/kca/2026-07-28/EXTR_Parcel.csv
   Loading panel_tbl_2006_2031_forecasted_baseline_res.rds  [cache]
-    matched 185,671 of 185,671 res parcels | area=area spec=NA src=NA
+    matched 185,671 of 185,671 res parcels | area=area spec=NA spec_sub=NA src=NA
     source classes: inferred report 83,407 (139.4B) | model 102,264 (128.2B)
   Loading panel_tbl_2006_2031_forecasted_baseline_com.rds  [cache]
-    matched 12,439 of 31,374 com parcels | area=area spec=spec_area src=co_rate_source
+    spec_sub filled from EXTR_Parcel: 0 -> 25,282 rows
+    matched 12,439 of 31,374 com parcels | area=area spec=spec_area spec_sub=NA src=co_rate_source
     rate-source values: <blank>=12,188, geo_report=242, value_weighted_com_capped=9
     source classes: model 6,167 (64.5B) | inferred report 6,021 (21.0B) | declared report 242 (1.2B) | other (hold/prior) 9 (0.4B)
   Loading panel_tbl_2006_2031_forecasted_baseline_condo.rds  [cache]
-    condo nbhd column candidates (parcels matching report nbhds): area=0
-    matched 22,702 of 80,053 condo parcels | area=area spec=NA src=NA
+Processed 19803 groups out of 19803. 100% done. Time elapsed: 3s. ETA: 0s.
+    condo nbhd column candidates (parcels matching report nbhds): area=0, kca_SpecSubArea=22,606, kca_SubArea=17,123
+    using kca_SpecSubArea as the condo neighborhood column (override: CFG_BT[['panel_cols']][['condo_nbhd']])
+    matched 22,702 of 80,053 condo parcels | area=area spec=NA spec_sub=NA src=NA
     source classes: model 22,702 (11.4B)
   Loading panel_tbl_2006_2031_forecasted_optimistic_res.rds  [cache]
-    matched 185,671 of 185,671 res parcels | area=area spec=NA src=NA
+    matched 185,671 of 185,671 res parcels | area=area spec=NA spec_sub=NA src=NA
     source classes: inferred report 83,407 (139.4B) | model 102,264 (128.2B)
   Loading panel_tbl_2006_2031_forecasted_optimistic_com.rds  [cache]
-    matched 12,439 of 31,374 com parcels | area=area spec=spec_area src=co_rate_source
+    spec_sub filled from EXTR_Parcel: 0 -> 25,282 rows
+    matched 12,439 of 31,374 com parcels | area=area spec=spec_area spec_sub=NA src=co_rate_source
     rate-source values: <blank>=12,188, geo_report=242, value_weighted_com_capped=9
     source classes: model 7,011 (66.2B) | inferred report 5,177 (19.3B) | declared report 242 (1.2B) | other (hold/prior) 9 (0.4B)
   Loading panel_tbl_2006_2031_forecasted_optimistic_condo.rds  [cache]
-    condo nbhd column candidates (parcels matching report nbhds): area=0
-    matched 22,702 of 80,053 condo parcels | area=area spec=NA src=NA
+    condo nbhd column candidates (parcels matching report nbhds): area=0, kca_SpecSubArea=22,606, kca_SubArea=17,123
+    using kca_SpecSubArea as the condo neighborhood column (override: CFG_BT[['panel_cols']][['condo_nbhd']])
+    matched 22,702 of 80,053 condo parcels | area=area spec=NA spec_sub=NA src=NA
     source classes: model 22,702 (11.4B)
   Loading panel_tbl_2006_2031_forecasted_pessimistic_res.rds  [cache]
-    matched 185,671 of 185,671 res parcels | area=area spec=NA src=NA
+    matched 185,671 of 185,671 res parcels | area=area spec=NA spec_sub=NA src=NA
     source classes: inferred report 83,407 (139.4B) | model 102,264 (128.2B)
   Loading panel_tbl_2006_2031_forecasted_pessimistic_com.rds  [cache]
-    matched 12,439 of 31,374 com parcels | area=area spec=spec_area src=co_rate_source
+    spec_sub filled from EXTR_Parcel: 0 -> 25,282 rows
+    matched 12,439 of 31,374 com parcels | area=area spec=spec_area spec_sub=NA src=co_rate_source
     rate-source values: <blank>=12,188, geo_report=242, value_weighted_com_capped=9
     source classes: model 7,009 (66.2B) | inferred report 5,179 (19.3B) | declared report 242 (1.2B) | other (hold/prior) 9 (0.4B)
   Loading panel_tbl_2006_2031_forecasted_pessimistic_condo.rds  [cache]
-    condo nbhd column candidates (parcels matching report nbhds): area=0
-    matched 22,702 of 80,053 condo parcels | area=area spec=NA src=NA
+    condo nbhd column candidates (parcels matching report nbhds): area=0, kca_SpecSubArea=22,606, kca_SubArea=17,123
+    using kca_SpecSubArea as the condo neighborhood column (override: CFG_BT[['panel_cols']][['condo_nbhd']])
+    matched 22,702 of 80,053 condo parcels | area=area spec=NA spec_sub=NA src=NA
     source classes: model 22,702 (11.4B)
 
 [3] Joining to actuals
-  26 report cells had no matching parcels (area_backtest_unmatched_reports.csv)
+  22 report cells had no matching parcels (area_backtest_unmatched_reports.csv)
 
 [4] Summaries
 
   Primary view: Model-sourced parcels (anchored run)  (baseline)
               cell_type n_cells av_base_bn bias_pp mae_pp within_1pp direction_hit
                  <fctr>   <int>      <num>   <num>  <num>      <num>         <num>
-1:     Residential area       9       69.4    4.07   4.07        0.0          0.22
-2:      Commercial area       3        0.0   45.10  45.10        0.0          0.33
-3: Commercial specialty       4        5.0    9.57   9.96        0.5          0.50
+1:     Residential area       9       69.4    4.07   4.07       0.00          0.22
+2:           Condo area       5       11.2    8.23   8.23       0.00          0.00
+3: Commercial specialty       6       38.8    9.81   9.86       0.33          0.33
 
   Largest dollar misses:
-    cell_label n_parcels av_base_bn actual_pct model_pct miss_bn
-        <char>     <int>      <num>      <num>     <num>   <num>
- 1:     Res 19      9071      13.33      -1.40      3.42   0.642
- 2:   Spec 800        43       2.75     -12.29      5.45   0.488
- 3:      Res 6      9489       7.25      -2.60      3.20   0.420
- 4:      Res 7      8661       7.17      -2.10      3.48   0.400
- 5:     Res 44      4753       5.43      -2.60      4.01   0.359
- 6:     Res 43      8080       8.99      -0.40      3.14   0.318
- 7:     Res 82      7043       6.61      -0.70      3.37   0.269
- 8:      Res 8      5218       5.32      -0.60      3.47   0.217
- 9:     Res 46      4641       9.39       2.00      3.34   0.126
-10:     Res 42      5759       5.95      -1.90     -0.62   0.076
+                  cell_label n_parcels av_base_bn actual_pct model_pct miss_bn
+                      <char>     <int>      <num>      <num>     <num>   <num>
+ 1: Spec 100 Central / North      4104      32.12      -8.36      1.23   3.082
+ 2:                   Res 19      9071      13.33      -1.40      3.42   0.642
+ 3:                 Spec 800        43       2.75     -12.29      5.45   0.488
+ 4:                    Res 6      9489       7.25      -2.60      3.20   0.420
+ 5:                    Res 7      8661       7.17      -2.10      3.48   0.400
+ 6:                   Res 44      4753       5.43      -2.60      4.01   0.359
+ 7:                   Res 43      8080       8.99      -0.40      3.14   0.318
+ 8:       Condo Capitol Hill      5838       2.91      -5.70      4.06   0.284
+ 9:                   Res 82      7043       6.61      -0.70      3.37   0.269
+10:           Spec 100 South       385       1.71     -10.09      4.53   0.250
 
   Coverage flags (panel vs report outside 0.67-1.5x):
-    cell_label n_parcels_all av_base_bn report_prev coverage_ratio count_ratio                     coverage_basis
-        <char>         <int>      <num>       <num>          <num>       <num>                             <char>
- 1:     Res 30          1419      32.25      692700          32.81          NA     panel mean AV / report mean AV
- 2:     Res 25          2935      12.49      649100           6.56          NA     panel mean AV / report mean AV
- 3:     Com 14           364       0.93  5242027652           0.18          NA panel matched AV / report total AV
- 4:     Com 36           410       1.17  5670339032           0.21          NA panel matched AV / report total AV
- 5:     Com 45           522       0.87  3966422800           0.22          NA panel matched AV / report total AV
- 6:     Com 20           703       2.56 11365040150           0.23          NA panel matched AV / report total AV
- 7:     Com 25           548       2.36  9852249530           0.24          NA panel matched AV / report total AV
- 8:     Com 10           333       1.07  3962976475           0.27          NA panel matched AV / report total AV
- 9:     Com 17           800       2.49  9003474699           0.28          NA panel matched AV / report total AV
-10:     Com 40           493       1.14  4022072308           0.28          NA panel matched AV / report total AV
-11:     Com 30           444       3.73 12838322086           0.29          NA panel matched AV / report total AV
-12:     Com 35           764       3.64 10398097170           0.35          NA panel matched AV / report total AV
-13:     Com 19           885       2.19  4623849400           0.47          NA panel matched AV / report total AV
-14:     Res 17          8627      15.96      985400           1.88          NA     panel mean AV / report mean AV
-15:      Res 1             4       0.01     1145200           1.53          NA     panel mean AV / report mean AV
-16:     Res 19          9071      13.33      974200           1.51          NA     panel mean AV / report mean AV
+                     cell_label n_parcels_all av_base_bn report_prev coverage_ratio count_ratio                     coverage_basis
+                         <char>         <int>      <num>       <num>          <num>       <num>                             <char>
+ 1:                      Res 30          1419      32.25      692700          32.81          NA     panel mean AV / report mean AV
+ 2:                      Res 25          2935      12.49      649100           6.56          NA     panel mean AV / report mean AV
+ 3:                      Com 14           364       0.93  5242027652           0.18          NA panel matched AV / report total AV
+ 4:                      Com 36           410       1.17  5670339032           0.21          NA panel matched AV / report total AV
+ 5:                      Com 45           522       0.87  3966422800           0.22          NA panel matched AV / report total AV
+ 6:                      Com 20           703       2.56 11365040150           0.23          NA panel matched AV / report total AV
+ 7:                      Com 25           548       2.36  9852249530           0.24          NA panel matched AV / report total AV
+ 8:                      Com 10           333       1.07  3962976475           0.27          NA panel matched AV / report total AV
+ 9:                      Com 17           800       2.49  9003474699           0.28          NA panel matched AV / report total AV
+10:                      Com 40           493       1.14  4022072308           0.28          NA panel matched AV / report total AV
+11:                      Com 30           444       3.73 12838322086           0.29          NA panel matched AV / report total AV
+12:                      Com 35           764       3.64 10398097170           0.35          NA panel matched AV / report total AV
+13:                      Com 19           885       2.19  4623849400           0.47          NA panel matched AV / report total AV
+14:                      Res 17          8627      15.96      985400           1.88          NA     panel mean AV / report mean AV
+15:                       Res 1             4       0.01     1145200           1.53          NA     panel mean AV / report mean AV
+16:                      Res 19          9071      13.33      974200           1.51          NA     panel mean AV / report mean AV
+17: Condo Northwest King County          6543       2.66      500400           0.81        0.47     panel mean AV / report mean AV
+18:      Condo Downtown Seattle          1581       1.24      706200           1.11        0.17     panel mean AV / report mean AV
   A residential panel mean far above the report mean means the parcels in that
   cell are not the report's population: check where the res panel's area code
   comes from (a commercial geo area number landing on a res area of the same number).
+
+  What is in the flagged residential cells (largest groups by TY2026 AV; full table in area_backtest_res_composition.csv):
+    area_k PropType SpecArea PresentUse kca_area     n av_bn av_share
+    <char>   <char>   <char>     <char>   <char> <int> <num>    <num>
+ 1:      1        R     <NA>          2        1     2  0.01     0.89
+ 2:      1        R     <NA>        300        1     2  0.00     0.11
+ 3:     17        R     <NA>          2       17  6076  5.93     0.37
+ 4:     17        C      100         11       17   488  2.19     0.14
+ 5:     17        C      100         16       17   103  0.94     0.06
+---                                                                  
+22:     30        C      100         16       30   116  6.43     0.20
+23:     30        C      100         11       30   122  3.38     0.10
+24:     30        C      160         51       30    59  3.35     0.10
+25:     30        C     <NA>        106       30   197  1.63     0.05
+26:     30        C      800        106       30    29  1.48     0.05
 
   Anchor QA: 0 of 27 anchored cells off by more than 0.1pp
 
@@ -1785,10 +2120,3 @@ NOTE: no unanchored run at \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and Ne
   Wrote 06_citywide_context.png
 
 Done. Outputs in \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/area_backtest
-Warning messages:
-1: In build_matched(path, trk, act) :
-  No condo panel column matches any report neighborhood in panel_tbl_2006_2031_forecasted_baseline_condo.rds. Set CFG_BT[['panel_cols']][['condo_nbhd']].
-2: In build_matched(path, trk, act) :
-  No condo panel column matches any report neighborhood in panel_tbl_2006_2031_forecasted_optimistic_condo.rds. Set CFG_BT[['panel_cols']][['condo_nbhd']].
-3: In build_matched(path, trk, act) :
-  No condo panel column matches any report neighborhood in panel_tbl_2006_2031_forecasted_pessimistic_condo.rds. Set CFG_BT[['panel_cols']][['condo_nbhd']].
