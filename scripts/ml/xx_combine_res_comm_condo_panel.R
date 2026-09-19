@@ -303,8 +303,9 @@ message("    condo: ",  nrow(panel_tbl_condo))
 # SECTION 7 — Partition assertions (res/com duplication guard)
 # =============================================================================
 # Defined in 00_init.R so this and xx_combine_res_comm_panel.R share one copy.
-# Hard-stops on any res/com parcel_id overlap, and on res + com failing to
-# reconcile to the Seattle levy-code population of EXTR_Parcel by PropType.
+# Hard-stops on any res/com parcel_id overlap and on any parcel of the wrong
+# PropType. A shortfall against the Seattle levy-code population of
+# EXTR_Parcel is REPORTED, not fatal — ids land in res_com_reconcile_gap.
 if (!exists("assert_res_com_partition", envir = .GlobalEnv))
   stop("assert_res_com_partition() not found — source 00_init.R first.")
 assert_res_com_partition(panel_tbl_res, panel_tbl_com, panel_tbl_condo)

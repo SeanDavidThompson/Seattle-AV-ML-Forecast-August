@@ -267,13 +267,20 @@ prep_for_dummyvars <- function(newdata, dv_obj, train_df = NULL) {
 # Shared by both panel combiners (xx_combine_res_comm_panel.R and
 # xx_combine_res_comm_condo_panel.R) so the two cannot drift apart.
 #
-# Two invariants, both hard stops. The point of the PropType split is that a
-# parcel is forecast exactly once; if that breaks, every downstream citywide
-# total double-counts and the failure is otherwise silent.
+# The point of the PropType split is that a parcel is forecast exactly once;
+# if that breaks, every downstream citywide total double-counts and the
+# failure is otherwise silent.
 #
-#   A. zero parcel_id overlap between the residential and commercial panels
-#   B. res + com parcel counts reconcile to the Seattle levy-code population
-#      of EXTR_Parcel, by PropType
+#   A. zero parcel_id overlap between res and com          -> HARD STOP
+#   B1. every panel parcel is of the expected PropType     -> HARD STOP
+#   B2. res + com counts reach the Seattle levy-code
+#       population of EXTR_Parcel, by PropType             -> REPORTED
+#
+# A and B1 are correctness violations: they mean a filter leaked, which is the
+# class of bug this partition exists to prevent. B2 is attrition -- parcels
+# that never reached the panel, most often dropped upstream for want of AV
+# history -- which is worth knowing about but is not a reason to kill a run.
+# The missing ids are left in res_com_reconcile_gap for inspection.
 #
 # Condo units are reported but NOT added into B: condo UNITS are not rows in
 # EXTR_Parcel (the complex Major is), so they are not part of that population
@@ -339,20 +346,42 @@ assert_res_com_partition <- function(panel_res, panel_com, panel_condo = NULL,
          "\n  res e.g.: ", paste(utils::head(stray_r, 5), collapse = ", "),
          "\n  com e.g.: ", paste(utils::head(stray_c, 5), collapse = ", "))
 
-  miss_r <- exp_r - length(res_ids)
-  miss_c <- exp_c - length(com_ids)
+  # B1 above guarantees the panels are subsets of the expected class, so the
+  # shortfall is exactly the set difference.
+  miss_r_ids <- setdiff(sea[.pt == "R", .pid], res_ids)
+  miss_c_ids <- setdiff(sea[.pt == "C", .pid], com_ids)
   message("  [assert] res ", length(res_ids), " / ", exp_r,
-          " (missing ", miss_r, ") | com ", length(com_ids), " / ", exp_c,
-          " (missing ", miss_c, ")")
-  if (miss_r != 0L || miss_c != 0L)
-    stop("Panel counts do not reconcile to the Seattle levy-code population: ",
-         "res is short ", miss_r, " of ", exp_r, " PropType R parcels, ",
-         "com is short ", miss_c, " of ", exp_c, " PropType C parcels. ",
-         "Parcels are being lost between EXTR_Parcel and the panel — most ",
-         "likely dropped by the AV-history join in ",
-         "xx_combine_parcel_history_changes.R or by a transform filter.")
-  message("  [assert] res + com reconcile to the Seattle population — OK")
-  invisible(TRUE)
+          " (missing ", length(miss_r_ids), ") | com ", length(com_ids),
+          " / ", exp_c, " (missing ", length(miss_c_ids), ")")
+
+  gap <- list(
+    expected_res = exp_r,            expected_com = exp_c,
+    panel_res    = length(res_ids),  panel_com    = length(com_ids),
+    res_missing  = miss_r_ids,       com_missing  = miss_c_ids
+  )
+  assign("res_com_reconcile_gap", gap, envir = .GlobalEnv)
+
+  if (length(miss_r_ids) > 0L || length(miss_c_ids) > 0L) {
+    message("  [assert] GAP (reported, not fatal): ", length(miss_r_ids),
+            " of ", exp_r, " PropType R and ", length(miss_c_ids), " of ",
+            exp_c, " PropType C Seattle parcels never reached the panel.")
+    if (length(miss_r_ids) > 0L)
+      message("    res e.g.: ",
+              paste(utils::head(miss_r_ids, 5), collapse = ", "))
+    if (length(miss_c_ids) > 0L)
+      message("    com e.g.: ",
+              paste(utils::head(miss_c_ids, 5), collapse = ", "))
+    message("    Most likely dropped by the AV-history join in ",
+            "xx_combine_parcel_history_changes.R or by a transform filter. ",
+            "Full id vectors: res_com_reconcile_gap")
+    warning("Panel counts do not reach the Seattle levy-code population: ",
+            "res short ", length(miss_r_ids), ", com short ",
+            length(miss_c_ids), ". Not fatal — see res_com_reconcile_gap.",
+            call. = FALSE)
+  } else {
+    message("  [assert] res + com reconcile to the Seattle population — OK")
+  }
+  invisible(gap)
 }
 
 message("00_init.R loaded. the cake is still a lie.")
