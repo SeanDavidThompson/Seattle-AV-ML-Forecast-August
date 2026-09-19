@@ -63,23 +63,9 @@ read_cache <- function(f) {
 res <- read_cache(paste0("panel_tbl_2006_2031_forecasted_", scen, "_res.rds"))
 res_s <- NULL
 if (!is.null(res)) {
-  # is_small_mf lives in parcel_res_full but is not carried into the panel —
-  # derive it by parcel_id join (dash-insensitive) so the rollup can exclude
-  # the ~6.5K parcels that are also forecast in the commercial track.
-  if (!"is_small_mf" %in% names(res)) {
-    prf <- file.path(cache_dir, "parcel_res_full.rds")
-    if (file.exists(prf)) {
-      pr <- as.data.table(readRDS(prf))
-      if ("is_small_mf" %in% names(pr) && "parcel_id" %in% names(pr)) {
-        smf_ids <- unique(gsub("-", "", pr[is_small_mf == 1, parcel_id]))
-        res[, is_small_mf := as.integer(gsub("-", "", parcel_id) %chin% smf_ids)]
-        cat("\nDerived is_small_mf from parcel_res_full.rds: ",
-            comma(res[is_small_mf == 1, uniqueN(parcel_id)]),
-            " parcels flagged.\n", sep = "")
-      }
-      rm(pr)
-    }
-  }
+  # is_small_mf is carried into the panel by
+  # xx_combine_parcel_history_changes.R, so it arrives on `res` directly and
+  # no longer has to be re-derived from parcel_res_full.rds by parcel_id join.
   if ("is_small_mf" %in% names(res)) {
     n_smf <- res[is_small_mf == 1, uniqueN(parcel_id)]
     cat("\nSmall-MF parcels excluded from res side of rollups: ",
@@ -87,8 +73,8 @@ if (!is.null(res)) {
     res_s <- yoy_tbl(res, "RESIDENTIAL (ex small-MF)",
                      quote(is.na(is_small_mf) | is_small_mf != 1))
   } else {
-    cat("\n\u26a0\ufe0f  is_small_mf unavailable (parcel_res_full.rds missing?)",
-        "— rollup may double-count ~6.5K parcels also in com.\n")
+    cat("\n\u26a0\ufe0f  is_small_mf absent from the forecast panel —",
+        "rebuild the panel so xx_combine_parcel_history_changes.R carries it.\n")
     res_s <- yoy_tbl(res, "RESIDENTIAL (no small-MF flag!)")
   }
 }
