@@ -115,8 +115,37 @@ facet_cols <- facet_cols[facet_cols %chin% names(parcel_dt)]
 dist_cols <- c("dist_to_public_km", "dist_to_private_km", "dist_to_lightrail_km")
 dist_cols <- dist_cols[dist_cols %chin% names(parcel_dt)]
 
-baseline_facets <- parcel_dt[, c("parcel_id", "area", facet_cols, dist_cols), with = FALSE]
+# Parcel-level model gates. These are set on parcel_res_full in 02_transfrm.R
+# but are NOT facets -- they never vary by year, so they are absent from
+# attr_map and were silently dropped by the column selection below. The cost
+# was invisible and large:
+#   train_res    03_model_land.R:57 / 03_model_impr.R:94 could not find it, so
+#                the residential models trained on the FULL panel, including
+#                every model_res=0 parcel they were meant to exclude.
+#   is_land_only 04_retrofitting_values.R:418,601 skipped their land-only
+#                guards, so land-only parcels could be given improvement AV.
+gate_cols <- c("train_res", "model_res", "is_land_only")
+gate_cols <- setdiff(gate_cols[gate_cols %chin% names(parcel_dt)],
+                     c("parcel_id", "area", facet_cols, dist_cols))
+missing_gates <- setdiff(c("train_res", "model_res", "is_land_only"), gate_cols)
+if (length(missing_gates) > 0)
+  warning("Model gate column(s) absent from parcel_res_full and therefore ",
+          "from the panel: ", paste(missing_gates, collapse = ", "),
+          ". Training and retrofit filters that depend on them will silently ",
+          "fall back to the full panel. Re-run 02_transfrm.R.", call. = FALSE)
+
+baseline_facets <- parcel_dt[, c("parcel_id", "area", facet_cols, dist_cols,
+                                 gate_cols), with = FALSE]
 setkey(baseline_facets, parcel_id)
+if (length(gate_cols) > 0)
+  message("  Model gates carried into the panel: ",
+          paste(sprintf("%s (n=1: %s)", gate_cols,
+                        vapply(gate_cols,
+                               function(g) format(sum(parcel_dt[[g]] == 1L,
+                                                      na.rm = TRUE),
+                                                  big.mark = ","),
+                               character(1))),
+                 collapse = " | "))
 
 panel <- baseline_facets[panel]   # left join baseline values
 

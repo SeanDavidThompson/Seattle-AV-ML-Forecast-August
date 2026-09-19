@@ -169,7 +169,21 @@ impute_for_prediction <- function(newdata, train_df, dv) {
 
 
 # Drop predictors with <2 stored factor levels from a dummyVars object.
+# The levels come from the dv object passed in as `dv` -- its $lvls slot -- and
+# from nowhere else. There is no free `dvlvls` symbol here and there must never
+# be one: a bare symbol would be looked up in the enclosing scope and either
+# error ("object 'dvlvls' not found") or, worse, silently pick up an unrelated
+# global and drop the wrong predictors.
 drop_single_level_dv_vars <- function(dv) {
+  if (!is.list(dv))
+    stop("drop_single_level_dv_vars() expects a dummyVars object, got ",
+         class(dv)[1], ".")
+  if (!"lvls" %in% names(dv))
+    stop("drop_single_level_dv_vars(): the object passed in has no $lvls slot, ",
+         "so its factor levels cannot be determined. Names present: ",
+         paste(names(dv), collapse = ", "),
+         "\n  Expected a caret::dummyVars object (see rebuild_dv_clean() in ",
+         "00_init.R). Re-run with model_replicate=TRUE to rebuild dv_* models.")
   if (is.null(dv$lvls)) return(dv)
   bad <- names(dv$lvls)[sapply(dv$lvls, length) < 2]
   if (length(bad) == 0) return(dv)
@@ -750,7 +764,21 @@ impute_for_prediction <- function(newdata, train_df, dv) {
 
 
 # Drop predictors with <2 stored factor levels from a dummyVars object.
+# The levels come from the dv object passed in as `dv` -- its $lvls slot -- and
+# from nowhere else. There is no free `dvlvls` symbol here and there must never
+# be one: a bare symbol would be looked up in the enclosing scope and either
+# error ("object 'dvlvls' not found") or, worse, silently pick up an unrelated
+# global and drop the wrong predictors.
 drop_single_level_dv_vars <- function(dv) {
+  if (!is.list(dv))
+    stop("drop_single_level_dv_vars() expects a dummyVars object, got ",
+         class(dv)[1], ".")
+  if (!"lvls" %in% names(dv))
+    stop("drop_single_level_dv_vars(): the object passed in has no $lvls slot, ",
+         "so its factor levels cannot be determined. Names present: ",
+         paste(names(dv), collapse = ", "),
+         "\n  Expected a caret::dummyVars object (see rebuild_dv_clean() in ",
+         "00_init.R). Re-run with model_replicate=TRUE to rebuild dv_* models.")
   if (is.null(dv$lvls)) return(dv)
   bad <- names(dv$lvls)[sapply(dv$lvls, length) < 2]
   if (length(bad) == 0) return(dv)
