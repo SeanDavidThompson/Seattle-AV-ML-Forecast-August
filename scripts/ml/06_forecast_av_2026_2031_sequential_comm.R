@@ -348,6 +348,29 @@ for (yr in fcst_years) {
   yr_data[, dlog_actual := NA_real_]
   yr_data[, rate_source := NA_character_]
 
+  # Rate precedence for a specialty parcel, most specific first:
+  #   1. specialty_region row matching spec_area + the parcel's SpecSubArea
+  #   2. the countywide specialty headline row for that spec_area
+  #   3. specialty_actuals_policy
+  # A parcel whose spec_area HAS a regional report but which matched no region
+  # (no SpecSubArea, or a SpecSubArea the report does not list) must FALL
+  # THROUGH to rule 2, never be dropped.  Tracked by parcel_id rather than row
+  # position so a later merge/reorder cannot misalign the counts.
+  .reg_miss_no_ssub  <- character(0)
+  .reg_miss_unlisted <- character(0)
+
+  # Prior-year (TY yr-1) AV for a set of parcel_ids: lag-1 land + imps.
+  .av_of <- function(ids) {
+    if (!length(ids)) return(0)
+    r <- yr_data$parcel_id %chin% ids
+    sum(data.table::fifelse(is.na(yr_data$log_appr_land_val_lag1), 0,
+                            exp(yr_data$log_appr_land_val_lag1))[r] +
+        data.table::fifelse(is.na(yr_data$log_appr_imps_val_lag1), 0,
+                            exp(yr_data$log_appr_imps_val_lag1))[r],
+        na.rm = TRUE)
+  }
+  .ids_where <- function(mask) yr_data$parcel_id[which(mask)]
+
   if (!"spec_area" %in% names(yr_data)) {
     warning("spec_area absent from the commercial panel for year ", yr,
             " - geographic actuals cannot be restricted to the non-specialty ",
@@ -410,6 +433,15 @@ for (yr in fcst_years) {
           yr_data[hit_reg, `:=`(dlog_actual = dlog_reg_tmp,
                                 rate_source = "spec_region_report")]
 
+        # Parcels in a spec_area that HAS a regional report, which matched no
+        # region.  Split by cause: no SpecSubArea at all vs a SpecSubArea the
+        # report does not list.  Both fall through to the headline rate below.
+        .reg_areas <- unique(reg_act$spec_area_join)
+        .cand <- !hit_reg & !is.na(yr_data$spec_area) &
+                 yr_data$spec_area %in% .reg_areas
+        .reg_miss_no_ssub  <- .ids_where(.cand &  is.na(yr_data$spec_sub_join_tmp))
+        .reg_miss_unlisted <- .ids_where(.cand & !is.na(yr_data$spec_sub_join_tmp))
+
         # How much did the regional rates cover?  AV is the lag-1 (prior
         # tax-year) land + imps, i.e. TY2026 AV when forecasting TY2027.
         reg_cov <- yr_data[hit_reg,
@@ -443,6 +475,14 @@ for (yr in fcst_years) {
                                 dplyr::coalesce(miss_reg$region_name, "")),
                         collapse = ", "))
 
+        if (length(.reg_miss_no_ssub) || length(.reg_miss_unlisted))
+          message(sprintf(
+            "      -> rule 2 (headline): %s with no SpecSubArea (TY%d AV $%.2fB) | %s whose SpecSubArea is not listed (TY%d AV $%.2fB)",
+            scales::comma(length(.reg_miss_no_ssub)), yr - 1L,
+            .av_of(.reg_miss_no_ssub) / 1e9,
+            scales::comma(length(.reg_miss_unlisted)), yr - 1L,
+            .av_of(.reg_miss_unlisted) / 1e9))
+
         yr_data[, c("spec_sub_join_tmp", "dlog_reg_tmp",
                     "spec_region_tmp", "region_name_tmp") := NULL]
       }
@@ -459,9 +499,23 @@ for (yr in fcst_years) {
       yr_data[spec_act, on = .(spec_area = spec_area_join),
               dlog_spec_tmp := i.dlog_spec]
       fill_spec <- is.na(yr_data$dlog_actual) & !is.na(yr_data$dlog_spec_tmp)
-      if (any(fill_spec))
+      if (any(fill_spec)) {
         yr_data[fill_spec, `:=`(dlog_actual = dlog_spec_tmp,
                                 rate_source = "specialty_report")]
+        .spec_ids <- .ids_where(fill_spec)
+        message(sprintf(
+          "    specialty headline rates (TY%d): %s parcels | TY%d AV $%.2fB",
+          yr, scales::comma(length(.spec_ids)), yr - 1L,
+          .av_of(.spec_ids) / 1e9))
+        .ft <- c(.reg_miss_no_ssub, .reg_miss_unlisted)
+        .ft_hit <- intersect(.ft, .spec_ids)
+        if (length(.ft))
+          message(sprintf(
+            "      of which fell through from a regional report: %s of %s parcels | TY%d AV $%.2fB",
+            scales::comma(length(.ft_hit)), scales::comma(length(.ft)),
+            yr - 1L, .av_of(.ft_hit) / 1e9))
+        rm(.spec_ids, .ft, .ft_hit)
+      }
       yr_data[, dlog_spec_tmp := NULL]
     }
 
@@ -514,6 +568,21 @@ for (yr in fcst_years) {
         }
       }
       # .spec_pol == "model": leave NA - the ML / CoStar blocks below fill it.
+
+      # Rule 3 accounting: every specialty parcel that reached the policy, and
+      # what the policy did with it.  A parcel is never dropped here - under
+      # "model" it stays NA on purpose and the ML blocks below take it.
+      .r3_ids <- .ids_where(unanchored)
+      message(sprintf(
+        "    rule 3 (specialty_actuals_policy = '%s') (TY%d): %s parcels | TY%d AV $%.2fB",
+        .spec_pol, yr, scales::comma(length(.r3_ids)), yr - 1L,
+        .av_of(.r3_ids) / 1e9))
+      .r3_src <- yr_data$rate_source[which(unanchored)]
+      .r3_tab <- table(ifelse(is.na(.r3_src), "left to model", .r3_src))
+      if (length(.r3_tab))
+        message("      ", paste(sprintf("%s=%s", names(.r3_tab),
+                                        as.integer(.r3_tab)), collapse = " | "))
+      rm(.r3_ids, .r3_src, .r3_tab)
     }
 
     # ---- 4. Apply the anchor ------------------------------------------------
