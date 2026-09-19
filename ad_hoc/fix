@@ -1,7 +1,7 @@
-> run_main_ml(replicate = FALSE, panel_replicate = FALSE, retrofit_replicate = TRUE, model_replicate = TRUE, extend_replicate = TRUE, diagnostics_replicate = TRUE, forecast_only = FALSE)
+> run_main_ml()
 ==============================================
-run_main_ml() started at: 2026-09-18 23:02:22
-replicate=FALSE | panel_replicate=FALSE | model_replicate=TRUE | retrofit=TRUE | diagnostics=TRUE | extend=TRUE | forecast_only=FALSE
+run_main_ml() started at: 2026-09-19 14:59:13
+replicate=FALSE | panel_replicate=FALSE | model_replicate=FALSE | retrofit=FALSE | diagnostics=FALSE | extend=FALSE | forecast_only=TRUE
 scenario = baseline | prop_scope = all
   commercial subgroups: apt, office, industrial, retail, hospitality, medical
 forecast = 2027-2031
@@ -19,168 +19,20 @@ import_raw_changes = FALSE
   ✅ loaded from cache: area_report_actuals_2026.rds
   area_report_actuals available: 47 geographic areas | 7 specialty areas
 
---- Step 1: Skipped (panel_replicate=FALSE — panels load from cache in Step 2) ---
-
---- Step 2: Panel assembly (scenario = baseline) ---
-  panel_replicate=FALSE — loading panels from cache ...
-  ✅ loaded: panel_tbl_res
-  ✅ loaded: panel_tbl_apt
-  ✅ loaded: panel_tbl_office
-  ✅ loaded: panel_tbl_industrial
-  ✅ loaded: panel_tbl_retail
-  ✅ loaded: panel_tbl_hospitality
-  ✅ loaded: panel_tbl_medical
-  ✅ loaded: panel_tbl_condo
-  🧹 freed: panel_tbl_condo  (3673.9 MB)
-  🧹 freed: panel_tbl_apt  (288.1 MB)
-  🧹 freed: panel_tbl_office  (61.4 MB)
-  🧹 freed: panel_tbl_industrial  (112.5 MB)
-  🧹 freed: panel_tbl_retail  (78.2 MB)
-  🧹 freed: panel_tbl_hospitality  (46.5 MB)
-  🧹 freed: panel_tbl_medical  (10.1 MB)
+--- Steps 1-5b: Skipped (forecast_only=TRUE — loading cached extended panels) ---
 
 --- Step 3: Models ---
 
   [Residential models]
-  Training residential LightGBM models ...
-Parallel backend registered with 15 cores.
-Running 03_model_land.R (LightGBM delta + level rolling CV) ...
-  Reading panel from: panel_tbl_res.rds
-Dropping single-level factor(s): current_zoning_3
-Dropping zero-variance predictor(s): seismic_hazard, landslide_hazard, steep_slope_hazard, dist_to_public_km, dist_to_private_km, dist_to_lightrail_km
-LightGBM LAND DELTA rolling CV RMSE (delta): 0.1449
-Dropping single-level factor(s): current_zoning_3
-Dropping zero-variance predictor(s): seismic_hazard, landslide_hazard, steep_slope_hazard, dist_to_public_km, dist_to_private_km, dist_to_lightrail_km
-LightGBM LAND LEVEL rolling CV RMSE (log level): 0.5978
-✅ Saved land delta + level artifacts with stamp: 20260918_231928
-
-delta model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 nwmls      0.531           6   0.0885
-2 parcel     0.380          33   0.0115
-3 econ       0.0895          6   0.0149
-
-delta model — top features by group:
-# A tibble: 15 × 3
-   group  feature                                                                   gain
-   <chr>  <chr>                                                                    <dbl>
- 1 nwmls  sea_pmedesfh_lag12                                                     0.295  
- 2 nwmls  sea_pmedesfh_lag6                                                      0.0781 
- 3 nwmls  sea_alesfh_lag12                                                       0.0597 
- 4 nwmls  sea_alesfh_lag6                                                        0.0537 
- 5 nwmls  sea_sesfh_lag6                                                         0.0343 
- 6 parcel log_appr_land_val_lag1                                                 0.118  
- 7 parcel log_appr_land_val_lag2                                                 0.0468 
- 8 parcel sq_ft_lot                                                              0.0315 
- 9 parcel area21                                                                 0.0272 
-10 parcel area22                                                                 0.0198 
-11 econ   econ_employment_thous_yoy_lag1                                         0.0332 
-12 econ   econ_services_providing_yoy_lag1                                       0.0154 
-13 econ   econ_wholesale_and_retail_trade_yoy_lag1                               0.0151 
-14 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_yoy_lag1 0.0139 
-15 econ   econ_housing_permits_thous_yoy_lag1                                    0.00808
-
-level model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel     0.688          67   0.0103
-2 nwmls      0.265           6   0.0442
-3 econ       0.0467          4   0.0117
-
-level model — top features by group:
-# A tibble: 14 × 3
-   group  feature                                                                   gain
-   <chr>  <chr>                                                                    <dbl>
- 1 nwmls  sea_pmedesfh_lag12                                                     0.216  
- 2 nwmls  sea_pmedesfh_lag6                                                      0.0273 
- 3 nwmls  sea_sesfh_lag6                                                         0.0136 
- 4 nwmls  sea_alesfh_lag6                                                        0.00427
- 5 nwmls  sea_sesfh_lag12                                                        0.00287
- 6 parcel sq_ft_lot                                                              0.186  
- 7 parcel unbuildableTRUE                                                        0.0894 
- 8 parcel area22                                                                 0.0378 
- 9 parcel area14                                                                 0.0321 
-10 parcel area77                                                                 0.0316 
-11 econ   econ_population_thous_lvl_lag1                                         0.0240 
-12 econ   econ_employment_thous_lvl_lag1                                         0.0141 
-13 econ   econ_services_providing_lvl_lag1                                       0.00533
-14 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1 0.00332
-03_model_land.R loaded (LightGBM delta + level)
-Running 03_model_impr.R (LightGBM delta + level rolling CV) ...
-  Reading panel from: panel_tbl_res.rds
-Dropping single-level factor(s): current_zoning_3
-Dropping zero-variance predictor(s): permits_last_1yr, permits_last_3yr, permits_last_5yr, val_last_3yr, val_last_5yr, sqft_last_3yr, units_last_3yr, any_newconst, years_since_newconst, log_val_last_3yr, log_sqft_last_3yr
-LightGBM IMPROVEMENT delta rolling CV RMSE (delta): 0.4672
-💾 cached improvements DELTA model + dv_impr_delta + training frame
-                                             Model     RMSE
-1 LightGBM (delta rolling CV, reconstructed level) 0.363276
-Dropping single-level factor(s): current_zoning_3
-Dropping zero-variance predictor(s): permits_last_1yr, permits_last_3yr, permits_last_5yr, val_last_3yr, val_last_5yr, sqft_last_3yr, units_last_3yr, any_newconst, years_since_newconst, log_val_last_3yr, log_sqft_last_3yr
-LightGBM IMPROVEMENT LEVEL rolling CV RMSE (log level): 1.1474
-LEVEL model in-sample RMSE (sanity check; should be <= CV RMSE): 0.882
-                        Model     RMSE
-1 LightGBM (level rolling CV) 1.147444
-💾 cached improvements LEVEL model + dv_impr_level + training frame
-
-delta model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel      0.524         25   0.0210
-2 econ        0.262          6   0.0437
-3 nwmls       0.213          6   0.0355
-
-delta model — top features by group:
-# A tibble: 15 × 3
-   group  feature                                                                   gain
-   <chr>  <chr>                                                                    <dbl>
- 1 parcel log_appr_imps_val_lag1                                                 0.212  
- 2 parcel log_appr_land_val                                                      0.134  
- 3 parcel log_appr_imps_val_lag2                                                 0.0530 
- 4 parcel area45                                                                 0.0222 
- 5 parcel area79                                                                 0.0211 
- 6 econ   econ_housing_permits_thous_yoy_lag1                                    0.153  
- 7 econ   econ_services_providing_yoy_lag1                                       0.0460 
- 8 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_yoy_lag1 0.0372 
- 9 econ   econ_employment_thous_yoy_lag1                                         0.0145 
-10 econ   econ_population_thous_yoy_lag1                                         0.00772
-11 nwmls  sea_sesfh_lag6                                                         0.0698 
-12 nwmls  sea_pmedesfh_lag12                                                     0.0645 
-13 nwmls  sea_alesfh_lag6                                                        0.0434 
-14 nwmls  sea_sesfh_lag12                                                        0.0148 
-15 nwmls  sea_pmedesfh_lag6                                                      0.0145 
-
-level model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel      0.642         27   0.0238
-2 econ        0.256          4   0.0639
-3 nwmls       0.102          6   0.0170
-
-level model — top features by group:
-# A tibble: 14 × 3
-   group  feature                                                                   gain
-   <chr>  <chr>                                                                    <dbl>
- 1 parcel log_appr_land_val                                                      0.214  
- 2 parcel area79                                                                 0.0491 
- 3 parcel area14                                                                 0.0358 
- 4 parcel area21                                                                 0.0353 
- 5 parcel area18                                                                 0.0317 
- 6 econ   econ_employment_thous_lvl_lag1                                         0.176  
- 7 econ   econ_population_thous_lvl_lag1                                         0.0452 
- 8 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1 0.0250 
- 9 econ   econ_services_providing_lvl_lag1                                       0.00951
-10 nwmls  sea_pmedesfh_lag12                                                     0.0469 
-11 nwmls  sea_pmedesfh_lag6                                                      0.0279 
-12 nwmls  sea_alesfh_lag6                                                        0.0102 
-13 nwmls  sea_sesfh_lag6                                                         0.00845
-14 nwmls  sea_sesfh_lag12                                                        0.00636
-03_model_impr.R loaded (LightGBM delta + level, dv_impr + dv_impr_level built)
-  ✅ Residential models trained and saved.
+  Loading cached residential models ...
+  ✅ loaded: lgb_land_delta_cv (lgb_land_delta_cv_20260918_231928.rds)
+  ✅ loaded: dv_land_delta (dv_land_delta_20260918_231928.rds)
+  ✅ loaded: lgb_impr_delta_cv (lgb_impr_delta_cv_20260918_232751.rds)
+  ✅ loaded: dv_impr_delta (dv_impr_delta_20260918_232751.rds)
+  ✅ loaded: lgb_impr_level_cv (lgb_impr_level_cv_20260918_232751.rds)
+  ✅ loaded: dv_impr_level (dv_impr_level_20260918_232751.rds)
+  ✅ loaded: lgb_land_level_cv (lgb_land_level_cv_20260918_231928.rds)
+  ✅ loaded: dv_land_level (dv_land_level_20260918_231928.rds)
   ✅ loaded training frame: model_data_land_delta_model
   ✅ loaded training frame: model_data_land_model
   ✅ loaded training frame: model_data_impr_delta_model
@@ -189,719 +41,622 @@ level model — top features by group:
   [Commercial subgroup models]
 
   --- Subgroup: Apartment (apt) ---
-  ✅ loaded retro panel for model build: panel_tbl_retro_apt
-    detrended cs_apt_demand_units -> cs_apt_demand_units_yoy
-    detrended cs_apt_inventory_units -> cs_apt_inventory_units_yoy
-    CoStar: joined 45 cs_apt_* features (274,023/274,023 rows matched)
-    dropped 3 features with no CoStar forecast coverage
-    dropped 4 non-stationary econ level(s) with a growth twin:
-       - econ_employment_thous_lvl_lag1
-       - econ_services_providing_lvl_lag1
-       - econ_population_thous_lvl_lag1
-       - econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
-    apt: 78 numeric predictors available
-    trimming 10667 training rows with |dlog| > 1 (land+impr)
-    ✅ model_data_apt_land_delta: 160,361 rows
-    ✅ model_data_apt_land_level: 167,400 rows
-    ✅ model_data_apt_impr_delta: 150,514 rows
-    ✅ model_data_apt_impr_level: 166,509 rows
-    vacancy_monotone = all (2 of 78 features constrained)
-    Training apt/land_delta (78 features, 160,361 rows) ...
-    CV RMSE = 0.0765, MAE = 0.041
-      by fold year: 2024=0.1061, 2025=0.0645, 2026=0.0588
-    💾 saved: lgb_apt_land_delta_cv
-    vacancy_monotone = all (2 of 78 features constrained)
-    Training apt/land_level (78 features, 167,400 rows) ...
-    CV RMSE = 0.1776, MAE = 0.0633
-      by fold year: 2024=0.1941, 2025=0.2107, 2026=0.1279
-    💾 saved: lgb_apt_land_level_cv
-    vacancy_monotone = all (2 of 78 features constrained)
-    Training apt/impr_delta (78 features, 150,514 rows) ...
-    CV RMSE = 0.1703, MAE = 0.1116
-      by fold year: 2024=0.1716, 2025=0.1777, 2026=0.1616
-    💾 saved: lgb_apt_impr_delta_cv
-    vacancy_monotone = all (2 of 78 features constrained)
-    Training apt/impr_level (78 features, 166,509 rows) ...
-    CV RMSE = 0.8321, MAE = 0.3904
-      by fold year: 2024=0.8734, 2025=0.8338, 2026=0.7891
-    💾 saved: lgb_apt_impr_level_cv
-  ✅ Apartment: 4/4 models trained and saved.
-  🧹 freed: model_data_apt_land_delta, model_data_apt_land_level, model_data_apt_impr_delta, model_data_apt_impr_level  (370.5 MB)
-  🧹 freed: panel_tbl_retro_apt  (338.3 MB)
+  Loading cached Apartment models ...
+  ✅ loaded: lgb_apt_land_delta_cv (lgb_apt_land_delta_cv.rds)
+  ✅ loaded: dv_apt_land_delta (dv_apt_land_delta.rds)
+  ✅ loaded: lgb_apt_land_level_cv (lgb_apt_land_level_cv.rds)
+  ✅ loaded: dv_apt_land_level (dv_apt_land_level.rds)
+  ✅ loaded: lgb_apt_impr_delta_cv (lgb_apt_impr_delta_cv.rds)
+  ✅ loaded: dv_apt_impr_delta (dv_apt_impr_delta.rds)
+  ✅ loaded: lgb_apt_impr_level_cv (lgb_apt_impr_level_cv.rds)
+  ✅ loaded: dv_apt_impr_level (dv_apt_impr_level.rds)
   ✅ loaded training frame: model_data_apt_land_delta
   ✅ loaded training frame: model_data_apt_land_level
   ✅ loaded training frame: model_data_apt_impr_delta
   ✅ loaded training frame: model_data_apt_impr_level
 
   --- Subgroup: Major Office (office) ---
-  ✅ loaded retro panel for model build: panel_tbl_retro_office
-    CoStar: joined 39 cs_off_* features (99,441/99,441 rows matched)
-    dropped 14 features with no CoStar forecast coverage
-    dropped 4 non-stationary econ level(s) with a growth twin:
-       - econ_employment_thous_lvl_lag1
-       - econ_services_providing_lvl_lag1
-       - econ_population_thous_lvl_lag1
-       - econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
-    office: 62 numeric predictors available
-    trimming 2417 training rows with |dlog| > 1 (land+impr)
-    ✅ model_data_office_land_delta: 34,525 rows
-    ✅ model_data_office_land_level: 35,991 rows
-    ✅ model_data_office_impr_delta: 32,322 rows
-    ✅ model_data_office_impr_level: 35,937 rows
-    vacancy_monotone = all (1 of 62 features constrained)
-    Training office/land_delta (62 features, 34,525 rows) ...
-    CV RMSE = 0.088, MAE = 0.0477
-      by fold year: 2024=0.0944, 2025=0.0939, 2026=0.0758
-    💾 saved: lgb_office_land_delta_cv
-    vacancy_monotone = all (1 of 62 features constrained)
-    Training office/land_level (62 features, 35,991 rows) ...
-    CV RMSE = 0.1416, MAE = 0.0699
-      by fold year: 2024=0.1742, 2025=0.1482, 2026=0.1023
-    💾 saved: lgb_office_land_level_cv
-    vacancy_monotone = all (1 of 62 features constrained)
-    Training office/impr_delta (62 features, 32,322 rows) ...
-    CV RMSE = 0.1614, MAE = 0.0921
-      by fold year: 2024=0.1607, 2025=0.1736, 2026=0.15
-    💾 saved: lgb_office_impr_delta_cv
-    vacancy_monotone = all (1 of 62 features constrained)
-    Training office/impr_level (62 features, 35,937 rows) ...
-    CV RMSE = 0.93, MAE = 0.422
-      by fold year: 2024=0.8739, 2025=1.0685, 2026=0.8475
-    💾 saved: lgb_office_impr_level_cv
-  ✅ Major Office: 4/4 models trained and saved.
-  🧹 freed: model_data_office_land_delta, model_data_office_land_level, model_data_office_impr_delta, model_data_office_impr_level  (62.9 MB)
-  🧹 freed: panel_tbl_retro_office  (122.8 MB)
+  Loading cached Major Office models ...
+  ✅ loaded: lgb_office_land_delta_cv (lgb_office_land_delta_cv.rds)
+  ✅ loaded: dv_office_land_delta (dv_office_land_delta.rds)
+  ✅ loaded: lgb_office_land_level_cv (lgb_office_land_level_cv.rds)
+  ✅ loaded: dv_office_land_level (dv_office_land_level.rds)
+  ✅ loaded: lgb_office_impr_delta_cv (lgb_office_impr_delta_cv.rds)
+  ✅ loaded: dv_office_impr_delta (dv_office_impr_delta.rds)
+  ✅ loaded: lgb_office_impr_level_cv (lgb_office_impr_level_cv.rds)
+  ✅ loaded: dv_office_impr_level (dv_office_impr_level.rds)
   ✅ loaded training frame: model_data_office_land_delta
   ✅ loaded training frame: model_data_office_land_level
   ✅ loaded training frame: model_data_office_impr_delta
   ✅ loaded training frame: model_data_office_impr_level
 
   --- Subgroup: Industrial (industrial) ---
-  ✅ loaded retro panel for model build: panel_tbl_retro_industrial
-    CoStar: joined 39 cs_ind_* features (196,506/196,506 rows matched)
-    dropped 10 features with no CoStar forecast coverage
-    dropped 4 non-stationary econ level(s) with a growth twin:
-       - econ_employment_thous_lvl_lag1
-       - econ_services_providing_lvl_lag1
-       - econ_population_thous_lvl_lag1
-       - econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
-    industrial: 66 numeric predictors available
-    trimming 3891 training rows with |dlog| > 1 (land+impr)
-    ✅ model_data_industrial_land_delta: 59,750 rows
-    ✅ model_data_industrial_land_level: 62,208 rows
-    ✅ model_data_industrial_impr_delta: 55,725 rows
-    ✅ model_data_industrial_impr_level: 61,749 rows
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training industrial/land_delta (66 features, 59,750 rows) ...
-    CV RMSE = 0.0853, MAE = 0.052
-      by fold year: 2024=0.0955, 2025=0.0787, 2026=0.0818
-    💾 saved: lgb_industrial_land_delta_cv
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training industrial/land_level (66 features, 62,208 rows) ...
-    CV RMSE = 0.1209, MAE = 0.0672
-      by fold year: 2024=0.1221, 2025=0.109, 2026=0.1317
-    💾 saved: lgb_industrial_land_level_cv
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training industrial/impr_delta (66 features, 55,725 rows) ...
-    CV RMSE = 0.1553, MAE = 0.0862
-      by fold year: 2024=0.1561, 2025=0.1671, 2026=0.1428
-    💾 saved: lgb_industrial_impr_delta_cv
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training industrial/impr_level (66 features, 61,749 rows) ...
-    CV RMSE = 0.8862, MAE = 0.4034
-      by fold year: 2024=0.8236, 2025=1.0138, 2026=0.8211
-    💾 saved: lgb_industrial_impr_level_cv
-  ✅ Industrial: 4/4 models trained and saved.
-  🧹 freed: model_data_industrial_land_delta, model_data_industrial_land_level, model_data_industrial_impr_delta, model_data_industrial_impr_level  (115.7 MB)
-  🧹 freed: panel_tbl_retro_industrial  (242.6 MB)
+  Loading cached Industrial models ...
+  ✅ loaded: lgb_industrial_land_delta_cv (lgb_industrial_land_delta_cv.rds)
+  ✅ loaded: dv_industrial_land_delta (dv_industrial_land_delta.rds)
+  ✅ loaded: lgb_industrial_land_level_cv (lgb_industrial_land_level_cv.rds)
+  ✅ loaded: dv_industrial_land_level (dv_industrial_land_level.rds)
+  ✅ loaded: lgb_industrial_impr_delta_cv (lgb_industrial_impr_delta_cv.rds)
+  ✅ loaded: dv_industrial_impr_delta (dv_industrial_impr_delta.rds)
+  ✅ loaded: lgb_industrial_impr_level_cv (lgb_industrial_impr_level_cv.rds)
+  ✅ loaded: dv_industrial_impr_level (dv_industrial_impr_level.rds)
   ✅ loaded training frame: model_data_industrial_land_delta
   ✅ loaded training frame: model_data_industrial_land_level
   ✅ loaded training frame: model_data_industrial_impr_delta
   ✅ loaded training frame: model_data_industrial_impr_level
 
   --- Subgroup: Retail (retail) ---
-  ✅ loaded retro panel for model build: panel_tbl_retro_retail
-    CoStar: joined 38 cs_ret_* features (110,145/141,615 rows matched)
-    dropped 10 features with no CoStar forecast coverage
-    dropped 4 non-stationary econ level(s) with a growth twin:
-       - econ_employment_thous_lvl_lag1
-       - econ_services_providing_lvl_lag1
-       - econ_population_thous_lvl_lag1
-       - econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
-    retail: 66 numeric predictors available
-    trimming 3920 training rows with |dlog| > 1 (land+impr)
-    ✅ model_data_retail_land_delta: 45,168 rows
-    ✅ model_data_retail_land_level: 47,007 rows
-    ✅ model_data_retail_impr_delta: 41,340 rows
-    ✅ model_data_retail_impr_level: 46,899 rows
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training retail/land_delta (66 features, 45,168 rows) ...
-    CV RMSE = 0.0815, MAE = 0.0435
-      by fold year: 2024=0.0835, 2025=0.0886, 2026=0.0725
-    💾 saved: lgb_retail_land_delta_cv
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training retail/land_level (66 features, 47,007 rows) ...
-    CV RMSE = 0.1175, MAE = 0.0576
-      by fold year: 2024=0.1503, 2025=0.1104, 2026=0.0919
-    💾 saved: lgb_retail_land_level_cv
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training retail/impr_delta (66 features, 41,340 rows) ...
-    CV RMSE = 0.1383, MAE = 0.0647
-      by fold year: 2024=0.1374, 2025=0.1515, 2026=0.1262
-    💾 saved: lgb_retail_impr_delta_cv
-    vacancy_monotone = all (1 of 66 features constrained)
-    Training retail/impr_level (66 features, 46,899 rows) ...
-    CV RMSE = 1.0356, MAE = 0.5052
-      by fold year: 2024=1.0034, 2025=1.156, 2026=0.9474
-    💾 saved: lgb_retail_impr_level_cv
-  ✅ Retail: 4/4 models trained and saved.
-  🧹 freed: model_data_retail_land_delta, model_data_retail_land_level, model_data_retail_impr_delta, model_data_retail_impr_level  (87.2 MB)
-  🧹 freed: panel_tbl_retro_retail  (174.9 MB)
+  Loading cached Retail models ...
+  ✅ loaded: lgb_retail_land_delta_cv (lgb_retail_land_delta_cv.rds)
+  ✅ loaded: dv_retail_land_delta (dv_retail_land_delta.rds)
+  ✅ loaded: lgb_retail_land_level_cv (lgb_retail_land_level_cv.rds)
+  ✅ loaded: dv_retail_land_level (dv_retail_land_level.rds)
+  ✅ loaded: lgb_retail_impr_delta_cv (lgb_retail_impr_delta_cv.rds)
+  ✅ loaded: dv_retail_impr_delta (dv_retail_impr_delta.rds)
+  ✅ loaded: lgb_retail_impr_level_cv (lgb_retail_impr_level_cv.rds)
+  ✅ loaded: dv_retail_impr_level (dv_retail_impr_level.rds)
   ✅ loaded training frame: model_data_retail_land_delta
   ✅ loaded training frame: model_data_retail_land_level
   ✅ loaded training frame: model_data_retail_impr_delta
   ✅ loaded training frame: model_data_retail_impr_level
 
   --- Subgroup: Hospitality (hospitality) ---
-  ✅ loaded retro panel for model build: panel_tbl_retro_hospitality
-    CoStar: joined 38 cs_hosp_* features (64,125/64,125 rows matched)
-    dropped 0 features with no CoStar forecast coverage
-    dropped 4 non-stationary econ level(s) with a growth twin:
-       - econ_employment_thous_lvl_lag1
-       - econ_services_providing_lvl_lag1
-       - econ_population_thous_lvl_lag1
-       - econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
-    hospitality: 85 numeric predictors available
-    trimming 2144 training rows with |dlog| > 1 (land+impr)
-    ✅ model_data_hospitality_land_delta: 29,275 rows
-    ✅ model_data_hospitality_land_level: 30,510 rows
-    ✅ model_data_hospitality_impr_delta: 27,211 rows
-    ✅ model_data_hospitality_impr_level: 30,375 rows
-    vacancy_monotone = all (0 of 85 features constrained)
-    Training hospitality/land_delta (85 features, 29,275 rows) ...
-    CV RMSE = 0.0682, MAE = 0.0352
-      by fold year: 2024=0.0855, 2025=0.063, 2026=0.0561
-    💾 saved: lgb_hospitality_land_delta_cv
-    vacancy_monotone = all (0 of 85 features constrained)
-    Training hospitality/land_level (85 features, 30,510 rows) ...
-    CV RMSE = 0.1055, MAE = 0.0534
-      by fold year: 2024=0.1135, 2025=0.0805, 2026=0.1225
-    💾 saved: lgb_hospitality_land_level_cv
-    vacancy_monotone = all (0 of 85 features constrained)
-    Training hospitality/impr_delta (85 features, 27,211 rows) ...
-    CV RMSE = 0.1096, MAE = 0.0523
-      by fold year: 2024=0.1186, 2025=0.1173, 2026=0.0929
-    💾 saved: lgb_hospitality_impr_delta_cv
-    vacancy_monotone = all (0 of 85 features constrained)
-    Training hospitality/impr_level (85 features, 30,375 rows) ...
-    CV RMSE = 0.712, MAE = 0.3106
-      by fold year: 2024=0.6789, 2025=0.781, 2026=0.676
-    💾 saved: lgb_hospitality_impr_level_cv
-  ✅ Hospitality: 4/4 models trained and saved.
-  🧹 freed: model_data_hospitality_land_delta, model_data_hospitality_land_level, model_data_hospitality_impr_delta, model_data_hospitality_impr_level  (73.8 MB)
-  🧹 freed: panel_tbl_retro_hospitality  (79.2 MB)
+  Loading cached Hospitality models ...
+  ✅ loaded: lgb_hospitality_land_delta_cv (lgb_hospitality_land_delta_cv.rds)
+  ✅ loaded: dv_hospitality_land_delta (dv_hospitality_land_delta.rds)
+  ✅ loaded: lgb_hospitality_land_level_cv (lgb_hospitality_land_level_cv.rds)
+  ✅ loaded: dv_hospitality_land_level (dv_hospitality_land_level.rds)
+  ✅ loaded: lgb_hospitality_impr_delta_cv (lgb_hospitality_impr_delta_cv.rds)
+  ✅ loaded: dv_hospitality_impr_delta (dv_hospitality_impr_delta.rds)
+  ✅ loaded: lgb_hospitality_impr_level_cv (lgb_hospitality_impr_level_cv.rds)
+  ✅ loaded: dv_hospitality_impr_level (dv_hospitality_impr_level.rds)
   ✅ loaded training frame: model_data_hospitality_land_delta
   ✅ loaded training frame: model_data_hospitality_land_level
   ✅ loaded training frame: model_data_hospitality_impr_delta
   ✅ loaded training frame: model_data_hospitality_impr_level
 
   --- Subgroup: Medical (medical) ---
-  ✅ loaded retro panel for model build: panel_tbl_retro_medical
-    dropped 0 features with no CoStar forecast coverage
-    dropped 4 non-stationary econ level(s) with a growth twin:
-       - econ_employment_thous_lvl_lag1
-       - econ_services_providing_lvl_lag1
-       - econ_population_thous_lvl_lag1
-       - econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
-    medical: 47 numeric predictors available
-    trimming 471 training rows with |dlog| > 1 (land+impr)
-    ✅ model_data_medical_land_delta: 5,300 rows
-    ✅ model_data_medical_land_level: 5,562 rows
-    ✅ model_data_medical_impr_delta: 4,915 rows
-    ✅ model_data_medical_impr_level: 5,535 rows
-    vacancy_monotone = all (0 of 47 features constrained)
-    Training medical/land_delta (47 features, 5,300 rows) ...
-    CV RMSE = 0.0736, MAE = 0.0428
-      by fold year: 2024=0.064, 2025=0.1024, 2026=0.0545
-    💾 saved: lgb_medical_land_delta_cv
-    vacancy_monotone = all (0 of 47 features constrained)
-    Training medical/land_level (47 features, 5,562 rows) ...
-    CV RMSE = 0.1568, MAE = 0.0828
-      by fold year: 2024=0.2151, 2025=0.1682, 2026=0.0872
-    💾 saved: lgb_medical_land_level_cv
-    vacancy_monotone = all (0 of 47 features constrained)
-    Training medical/impr_delta (47 features, 4,915 rows) ...
-    CV RMSE = 0.1008, MAE = 0.0518
-      by fold year: 2024=0.1038, 2025=0.1253, 2026=0.0732
-    💾 saved: lgb_medical_impr_delta_cv
-    vacancy_monotone = all (0 of 47 features constrained)
-    Training medical/impr_level (47 features, 5,535 rows) ...
-    CV RMSE = 0.5776, MAE = 0.2976
-      by fold year: 2024=0.4866, 2025=0.7578, 2026=0.4885
-    💾 saved: lgb_medical_impr_level_cv
-  ✅ Medical: 4/4 models trained and saved.
-  🧹 freed: model_data_medical_land_delta, model_data_medical_land_level, model_data_medical_impr_delta, model_data_medical_impr_level  (7.3 MB)
-  🧹 freed: panel_tbl_retro_medical  (25.4 MB)
+  Loading cached Medical models ...
+  ✅ loaded: lgb_medical_land_delta_cv (lgb_medical_land_delta_cv.rds)
+  ✅ loaded: dv_medical_land_delta (dv_medical_land_delta.rds)
+  ✅ loaded: lgb_medical_land_level_cv (lgb_medical_land_level_cv.rds)
+  ✅ loaded: dv_medical_land_level (dv_medical_land_level.rds)
+  ✅ loaded: lgb_medical_impr_delta_cv (lgb_medical_impr_delta_cv.rds)
+  ✅ loaded: dv_medical_impr_delta (dv_medical_impr_delta.rds)
+  ✅ loaded: lgb_medical_impr_level_cv (lgb_medical_impr_level_cv.rds)
+  ✅ loaded: dv_medical_impr_level (dv_medical_impr_level.rds)
   ✅ loaded training frame: model_data_medical_land_delta
   ✅ loaded training frame: model_data_medical_land_level
   ✅ loaded training frame: model_data_medical_impr_delta
   ✅ loaded training frame: model_data_medical_impr_level
 
   [Condo models]
-  Training condo LightGBM models (land + impr) ...
-  Loaded panel_tbl_condo from cache.
-  appr_land_val all-NA in panel_tbl_condo — re-joining from av_history_cln ...
-    AV re-join complete.
-  Computed log AV + lag columns for condo panel
-  Econ features available: 10
-  Condo LAND model — base rows: 750846
-
-  --- Condo LAND DELTA model ---
-    Rows (lag present): 728264
-    Training delta CV (rolling folds) ...
-    Rolling CV: 5 chronological folds
-    Best iter: 1  [rolling CV]
-    ✅ Saved: lgb_condo_land_delta_cv_20260918_234217.rds
-    Top 10 delta features:
-                           Feature       Gain
-                            <char>      <num>
- 1: econ_population_thous_yoy_lag1 0.24909192
- 2:        nwmls_condo_active_list 0.20989389
- 3:                      nbr_units 0.08058678
- 4:               nbr_stories_cplx 0.07419379
- 5:  nwmls_condo_active_list_delta 0.07398613
- 6:    nwmls_condo_med_price_delta 0.04295179
- 7:                      nbr_bldgs 0.04049271
- 8:                  has_elevators 0.03505941
- 9:                    eff_yr_cplx 0.03259563
-10:                  avg_unit_size 0.03198655
-
-  --- Condo LAND LEVEL model ---
-    Rows: 750846
-    Training level CV (rolling folds) ...
-    Rolling CV: 5 chronological folds
-    Best iter: 485  [rolling CV]
-    ✅ Saved: lgb_condo_land_level_cv_20260918_234217.rds
-
-Condo LAND model RMSE summary:
-  Delta CV RMSE (log change)      : 0.1435
-  Delta CV RMSE (reconstructed)   : 0.1435
-  Level CV RMSE : 0.6081
-
-DELTA model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel      0.387         12   0.0323
-2 nwmls       0.364          5   0.0728
-3 econ        0.249          1   0.249 
-
-DELTA model — top features by group:
-# A tibble: 11 × 3
-   group  feature                          gain
-   <chr>  <chr>                           <dbl>
- 1 econ   econ_population_thous_yoy_lag1 0.249 
- 2 nwmls  nwmls_condo_active_list        0.210 
- 3 nwmls  nwmls_condo_active_list_delta  0.0740
- 4 nwmls  nwmls_condo_med_price_delta    0.0430
- 5 nwmls  nwmls_condo_med_price_lag1     0.0195
- 6 nwmls  nwmls_condo_active_list_lag1   0.0174
- 7 parcel nbr_units                      0.0806
- 8 parcel nbr_stories_cplx               0.0742
- 9 parcel nbr_bldgs                      0.0405
-10 parcel has_elevators                  0.0351
-11 parcel eff_yr_cplx                    0.0326
-
-LEVEL model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel     0.718          29  0.0248 
-2 nwmls      0.259           8  0.0324 
-3 econ       0.0232          4  0.00580
-
-LEVEL model — top features by group:
-# A tibble: 14 × 3
-   group  feature                                                                    gain
-   <chr>  <chr>                                                                     <dbl>
- 1 nwmls  nwmls_condo_med_price                                                  0.118   
- 2 nwmls  nwmls_condo_med_price_lag1                                             0.0624  
- 3 nwmls  nwmls_condo_med_price_lag2                                             0.0614  
- 4 nwmls  nwmls_condo_active_list                                                0.00544 
- 5 nwmls  nwmls_condo_active_list_lag2                                           0.00472 
- 6 parcel nbr_units                                                              0.101   
- 7 parcel avg_unit_size                                                          0.0969  
- 8 parcel nbr_stories_cplx                                                       0.0869  
- 9 parcel log_avg_unit_size                                                      0.0781  
-10 parcel yr_built_cplx                                                          0.0688  
-11 econ   econ_employment_thous_lvl_lag1                                         0.0146  
-12 econ   econ_population_thous_lvl_lag1                                         0.00796 
-13 econ   econ_services_providing_lvl_lag1                                       0.000412
-14 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1 0.000252
-
-03_model_condo_land.R loaded — condo land models trained.
-  appr_land_val all-NA in panel_tbl_condo — re-joining from av_history_cln ...
-    AV re-join complete.
-  Computed log AV + lag columns for condo panel
-  Econ features available: 10
-  Condo IMPR model — base rows: 753078
-
-  --- Condo IMPR DELTA model ---
-    Rows (lag present): 730486
-    Training delta CV (rolling folds) ...
-    Rolling CV: 5 chronological folds
-    Best iter: 1  [rolling CV]
-    ✅ Saved: lgb_condo_impr_delta_cv_20260918_234846.rds
-    Top 10 delta features:
-                           Feature       Gain
-                            <char>      <num>
- 1:          nwmls_condo_med_price 0.27197364
- 2:               nbr_stories_cplx 0.22656606
- 3:                  yr_built_cplx 0.08916225
- 4: econ_employment_thous_yoy_lag1 0.06703162
- 5:            effective_unit_sqft 0.06177530
- 6:    nwmls_condo_med_price_delta 0.04895213
- 7:                  log_nbr_units 0.04889216
- 8:               project_location 0.04543019
- 9:        nwmls_condo_active_list 0.02875057
-10:              bldg_quality_cplx 0.02338800
-
-  --- Condo IMPR LEVEL model ---
-    Rows: 753078
-    Training level CV (rolling folds) ...
-    Rolling CV: 5 chronological folds
-    Best iter: 79  [rolling CV]
-    ✅ Saved: lgb_condo_impr_level_cv_20260918_234846.rds
-
-Condo IMPR model RMSE summary:
-  Delta CV RMSE (log change)      : 0.3849
-  Delta CV RMSE (reconstructed)   : 0.3849
-  Level CV RMSE : 0.4665
-
-DELTA model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel     0.570          13   0.0439
-2 nwmls      0.363           6   0.0605
-3 econ       0.0670          1   0.0670
-
-DELTA model — top features by group:
-# A tibble: 11 × 3
-   group  feature                           gain
-   <chr>  <chr>                            <dbl>
- 1 nwmls  nwmls_condo_med_price          0.272  
- 2 nwmls  nwmls_condo_med_price_delta    0.0490 
- 3 nwmls  nwmls_condo_active_list        0.0288 
- 4 nwmls  nwmls_condo_med_price_lag2     0.00650
- 5 nwmls  nwmls_condo_active_list_lag1   0.00513
- 6 parcel nbr_stories_cplx               0.227  
- 7 parcel yr_built_cplx                  0.0892 
- 8 parcel effective_unit_sqft            0.0618 
- 9 parcel log_nbr_units                  0.0489 
-10 parcel project_location               0.0454 
-11 econ   econ_employment_thous_yoy_lag1 0.0670 
-
-LEVEL model — feature gain by group:
-# A tibble: 3 × 4
-  group  total_gain n_features avg_gain
-  <chr>       <dbl>      <int>    <dbl>
-1 parcel     0.920          32  0.0288 
-2 nwmls      0.0648          8  0.00810
-3 econ       0.0150          4  0.00376
-
-LEVEL model — top features by group:
-# A tibble: 14 × 3
-   group  feature                                                                    gain
-   <chr>  <chr>                                                                     <dbl>
- 1 parcel nbr_bedrooms                                                           0.260   
- 2 parcel yr_built_cplx                                                          0.147   
- 3 parcel age_cplx                                                               0.110   
- 4 parcel effective_unit_sqft                                                    0.0913  
- 5 parcel bldg_quality_cplx                                                      0.0728  
- 6 nwmls  nwmls_condo_med_price_lag1                                             0.0297  
- 7 nwmls  nwmls_condo_med_price                                                  0.0185  
- 8 nwmls  nwmls_condo_active_list_lag2                                           0.00486 
- 9 nwmls  nwmls_condo_med_price_lag2                                             0.00461 
-10 nwmls  nwmls_condo_active_list                                                0.00403 
-11 econ   econ_employment_thous_lvl_lag1                                         0.0107  
-12 econ   econ_services_providing_lvl_lag1                                       0.00269 
-13 econ   econ_population_thous_lvl_lag1                                         0.00124 
-14 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1 0.000350
-
-03_model_condo_impr.R loaded — condo improvement models trained.
-  ✅ Condo models trained and saved.
-  🧹 freed: model_data_condo_land_delta, model_data_condo_land_level, model_data_condo_impr_delta, model_data_condo_impr_level  (4180.1 MB)
+  Loading cached condo models ...
+  ✅ loaded: lgb_condo_land_delta_cv (lgb_condo_land_delta_cv_20260918_234217.rds)
+  ✅ loaded: dv_condo_land_delta (dv_condo_land_delta_20260918_234217.rds)
+  ✅ loaded: lgb_condo_land_level_cv (lgb_condo_land_level_cv_20260918_234217.rds)
+  ✅ loaded: dv_condo_land_level (dv_condo_land_level_20260918_234217.rds)
+  ✅ loaded: lgb_condo_impr_delta_cv (lgb_condo_impr_delta_cv_20260918_234846.rds)
+  ✅ loaded: dv_condo_impr_delta (dv_condo_impr_delta_20260918_234846.rds)
+  ✅ loaded: lgb_condo_impr_level_cv (lgb_condo_impr_level_cv_20260918_234846.rds)
+  ✅ loaded: dv_condo_impr_level (dv_condo_impr_level_20260918_234846.rds)
   ✅ loaded training frame: model_data_condo_land_delta
   ✅ loaded training frame: model_data_condo_land_level
   ✅ loaded training frame: model_data_condo_impr_delta
   ✅ loaded training frame: model_data_condo_impr_level
-  🧹 freed: panel_tbl  (5849.5 MB)
-
---- Step 4a: Retrofit historical AV (residential) ---
-  🧹 freed: panel_tbl_res  (5849.5 MB)
-impute_for_prediction called
-Predicting chunk 1/14
-Predicting chunk 2/14
-Predicting chunk 3/14
-Predicting chunk 4/14
-Predicting chunk 5/14
-Predicting chunk 6/14
-Predicting chunk 7/14
-Predicting chunk 8/14
-Predicting chunk 9/14
-Predicting chunk 10/14
-Predicting chunk 11/14
-Predicting chunk 12/14
-Predicting chunk 13/14
-Predicting chunk 14/14
-LAND (LGBM): Missing outcomes: 668212
-LAND (LGBM): Predicted (after impute/align): 668212
-LAND (LGBM): Still missing after predict: 0
-impute_for_prediction called
-Predicting chunk 1/1
-impute_for_prediction called
-IMPR (LGBM): Missing outcomes: 791925
-IMPR (LGBM): Predicted (after impute/align): 791925
-IMPR (LGBM): Still missing after predict: 0
-💾 parquet: parcel_year_panel_2000_2025_2026-09-18.parquet
-# A tibble: 27 × 5
-   tax_yr n_rows n_na_land n_na_impr n_na_tot_filled
-    <int>  <int>     <int>     <int>           <int>
- 1   2000 166258         0         0               0
- 2   2001 166258         0         0               0
- 3   2002 166258         0         0               0
- 4   2003 166258         0         0               0
- 5   2004 166258         0         0               0
- 6   2005 166258         0         0               0
- 7   2006 166258         0         0               0
- 8   2007 166258         0         0               0
- 9   2008 166258         0         0               0
-10   2009 166258         0         0               0
-11   2010 166258         0         0               0
-12   2011 166258         0         0               0
-13   2012 166258         0         0               0
-14   2013 166258         0         0               0
-15   2014 166258         0         0               0
-16   2015 166258         0         0               0
-17   2016 166258         0         0               0
-18   2017 166258         0         0               0
-19   2018 166258         0         0               0
-20   2019 166258         0         0               0
-21   2020 166258         0         0               0
-22   2021 166258         0         0               0
-23   2022 166258         0         0               0
-24   2023 166258         0         0               0
-25   2024 166258         0         0               0
-26   2025 166258         0         0               0
-# ℹ 1 more row
-# ℹ Use `print(n = ...)` to see more rows
-💾 cached retrofitted panel_tbl to: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/cache/panel_tbl_retro.rds
-04_retrofitting_values.R loaded (LightGBM only, cache-first).
-  💾 cached: panel_tbl_retro_res
-  🧹 freed: panel_tbl_retro, panel_tbl  (12383.9 MB)
-
---- Step 4b: Retrofit historical AV (Apartment / apt) ---
-  ✅ loaded: panel_tbl_apt
-  log_appr_land_val all-NA in apt retro panel — re-joining AV ...
-    AV re-join complete for apt retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_apt
-  🧹 freed: panel_tbl_apt  (288.1 MB)
-
---- Step 4b: Retrofit historical AV (Major Office / office) ---
-  ✅ loaded: panel_tbl_office
-  log_appr_land_val all-NA in office retro panel — re-joining AV ...
-    AV re-join complete for office retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_office
-  🧹 freed: panel_tbl_office  (61.4 MB)
-
---- Step 4b: Retrofit historical AV (Industrial / industrial) ---
-  ✅ loaded: panel_tbl_industrial
-  log_appr_land_val all-NA in industrial retro panel — re-joining AV ...
-    AV re-join complete for industrial retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_industrial
-  🧹 freed: panel_tbl_industrial  (112.5 MB)
-
---- Step 4b: Retrofit historical AV (Retail / retail) ---
-  ✅ loaded: panel_tbl_retail
-  log_appr_land_val all-NA in retail retro panel — re-joining AV ...
-    AV re-join complete for retail retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_retail
-  🧹 freed: panel_tbl_retail  (78.2 MB)
-
---- Step 4b: Retrofit historical AV (Hospitality / hospitality) ---
-  ✅ loaded: panel_tbl_hospitality
-  log_appr_land_val all-NA in hospitality retro panel — re-joining AV ...
-    AV re-join complete for hospitality retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_hospitality
-  🧹 freed: panel_tbl_hospitality  (46.5 MB)
-
---- Step 4b: Retrofit historical AV (Medical / medical) ---
-  ✅ loaded: panel_tbl_medical
-  log_appr_land_val all-NA in medical retro panel — re-joining AV ...
-    AV re-join complete for medical retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_medical
-  🧹 freed: panel_tbl_medical  (10.1 MB)
-
---- Step 4b: Retrofit historical AV (com_other) ---
-  log_appr_land_val all-NA in com_other retro panel — re-joining AV ...
-    AV re-join complete for com_other: land non-NA = 52,091 | impr non-NA = 52,091
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_com_other
-  🧹 freed: panel_tbl_com_other  (157.3 MB)
-
---- Step 4c: Retrofit historical AV (condo) ---
-  log_appr_land_val all-NA in condo retro panel — re-joining AV ...
-    AV re-join complete for condo retro panel.
-  🧹 freed: av_history_cln  (685.8 MB)
-  💾 cached: panel_tbl_retro_condo
-  🧹 freed: panel_tbl_condo  (3673.9 MB)
-  🧹 freed: panel_tbl_retro_apt  (288.1 MB)
-  🧹 freed: panel_tbl_retro_office  (61.4 MB)
-  🧹 freed: panel_tbl_retro_industrial  (112.5 MB)
-  🧹 freed: panel_tbl_retro_retail  (78.2 MB)
-  🧹 freed: panel_tbl_retro_hospitality  (46.5 MB)
-  🧹 freed: panel_tbl_retro_medical  (10.1 MB)
-  🧹 freed: panel_tbl_retro_com_other, panel_tbl_retro_condo  (3831.1 MB)
-
---- Step 5a: Holdout diagnostics ---
-Running 05_eval_holdout_2025.R ...
-✅ loaded dv_impr_delta from: dv_impr_delta_20260918_232751.rds
-✅ loaded lgb_com_land_delta_cv from: lgb_comm_land_delta_cv_20260329_213132.rds
-✅ loaded dv_com_land_delta from: dv_comm_land_delta_20260329_213132.rds
-✅ loaded lgb_com_impr_delta_cv from: lgb_comm_impr_delta_cv_20260329_213730.rds
-✅ loaded dv_com_impr_delta from: dv_comm_impr_delta_20260329_213730.rds
-✅ loaded training frame: model_data_comm_land_delta
-✅ loaded training frame: model_data_comm_impr_delta
-  ⚠  panel_tbl_retro_com not available — skipping commercial holdout eval.
-  Loaded panel_tbl_retro_condo from cache for eval.
-  Condo land 2025 holdout — RMSE_log: 0.0764  WAPE: 0.0718
-  Condo impr 2025 holdout — RMSE_log: 0.2441  WAPE: 0.1583
-
-=== 2025 Holdout Eval — All Tracks ===
-# A tibble: 4 × 7
-  Track       Target     Model          RMSE_log MAE_log   MAPE   WAPE
-  <chr>       <chr>      <chr>             <dbl>   <dbl>  <dbl>  <dbl>
-1 Condo       condo_impr LGB_condo_impr   0.244   0.154  0.170  0.158 
-2 Condo       condo_land LGB_condo_land   0.0764  0.0675 0.0673 0.0718
-3 Residential impr       LGB_impr         0.513   0.187  0.178  0.110 
-4 Residential land       LGB_land         0.125   0.0562 0.0557 0.0494
-✅ 2025 evaluation complete. Outputs written to: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/eval_2025
-05_eval_holdout_2025.R loaded
-  🧹 freed: panel_tbl, model_data_land_delta_model, model_data_land_model, model_data_impr_delta_model, model_data_impr_level_model, model_data_comm_land_delta, model_data_comm_impr_delta, model_data_condo_land_delta, model_data_condo_land_level, model_data_condo_impr_delta, model_data_condo_impr_level  (13289.4 MB)
+  🧹 freed: model_data_land_delta_model, model_data_land_model, model_data_impr_delta_model, model_data_impr_level_model, model_data_condo_land_delta, model_data_condo_land_level, model_data_condo_impr_delta, model_data_condo_impr_level  (6416.5 MB)
 
 --- Step 5b: Extend panel 2027-2031 (scenario = baseline) ---
-05_extend_panel_2026_2031.R: scenario = baseline
-History through tax_yr = 2026
-Extending to: 2027, 2028, 2029, 2030, 2031
-Processed 166258 groups out of 166258. 100% done. Time elapsed: 23s. ETA: 0s.
-   n_rows n_unique_parcels n_missing_econ n_missing_nwmls
-    <int>            <int>          <int>           <int>
-1: 831290           166258              0               0
-💾 saved: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/cache/panel_tbl_2006_2031_inputs_baseline.rds
-💾 saved: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/parcel_year_panel_tbl_2006_2031_inputs_baseline.parquet
-05_extend_panel_2026_2031.R complete (scenario = baseline).
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_res.rds
-  🧹 freed: panel_tbl_2006_2031_inputs_baseline  (7397.6 MB)
-  🧹 freed: panel_tbl_retro_res, panel_tbl_retro  (12383.9 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 7422
-  Extended commercial panel rows: 237504 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_apt.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (385.7 MB)
-  🧹 freed: panel_tbl_retro_apt, panel_tbl_retro  (576.2 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 1579
-  Extended commercial panel rows: 50528 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_office.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (82.1 MB)
-  🧹 freed: panel_tbl_retro_office, panel_tbl_retro  (122.7 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 2896
-  Extended commercial panel rows: 92672 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_industrial.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (150.6 MB)
-  🧹 freed: panel_tbl_retro_industrial, panel_tbl_retro  (225 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 2013
-  Extended commercial panel rows: 64416 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_retail.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (104.7 MB)
-  🧹 freed: panel_tbl_retro_retail, panel_tbl_retro  (156.5 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 1195
-  Extended commercial panel rows: 38240 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_hospitality.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (62.2 MB)
-  🧹 freed: panel_tbl_retro_hospitality, panel_tbl_retro  (92.9 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 259
-  Extended commercial panel rows: 8288 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_medical.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (13.5 MB)
-  🧹 freed: panel_tbl_retro_medical, panel_tbl_retro  (20.2 MB)
-  Extending commercial panel from 2027 to 2031 ...
-  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
-  Parcels to extend: 4049
-  Extended commercial panel rows: 129568 | years: 2000-2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
-05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_com_other.rds
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (210.5 MB)
-  🧹 freed: panel_tbl_retro_com_other, panel_tbl_retro  (314.5 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_apt  (385.7 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_office  (82.1 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_industrial  (150.6 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_retail  (104.7 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_hospitality  (62.2 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_medical  (13.5 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com_other  (210.5 MB)
-  Extending condo panel 2027 – 2031 | units: 97558
-  NWMLS condo forecast rows: 5
-  Extended condo panel rows: 3121856 | years: 2000 – 2031
-  💾 cached: panel_tbl_2006_2031_inputs_baseline_condo.rds
-05_extend_panel_2026_2031_condo.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2027_2031_inputs_baseline_condo.rds
-  🧹 freed: panel_tbl_retro_condo, panel_tbl_retro  (7347.8 MB)
+  forecast_only=TRUE — loading cached extended panels ...
+  ✅ loaded extended panel (res): panel_tbl_2027_2031_inputs_baseline_res.rds
+  ✅ loaded extended panel (apt): panel_tbl_2027_2031_inputs_baseline_apt.rds
+  ✅ loaded extended panel (office): panel_tbl_2027_2031_inputs_baseline_office.rds
+  ✅ loaded extended panel (industrial): panel_tbl_2027_2031_inputs_baseline_industrial.rds
+  ✅ loaded extended panel (retail): panel_tbl_2027_2031_inputs_baseline_retail.rds
+  ✅ loaded extended panel (hospitality): panel_tbl_2027_2031_inputs_baseline_hospitality.rds
+  ✅ loaded extended panel (medical): panel_tbl_2027_2031_inputs_baseline_medical.rds
+  ✅ loaded extended panel (com_other): panel_tbl_2027_2031_inputs_baseline_com_other.rds
+  ✅ loaded extended panel (condo): panel_tbl_2027_2031_inputs_baseline_condo.rds
 
 --- Step 6: Sequential forecast 2027-2031 ---
   [Residential forecast]
-Error in drop_single_level_dv_vars(obj) : object 'dvlvls' not found
-In addition: 
+✅ loaded: model_data_land_delta_model
+✅ loaded: model_data_impr_delta_model
+
+============================================================
+SCENARIO: BASELINE
+============================================================
+History max year: 2026 | Forecasting: 2027, 2028, 2029, 2030, 2031
+
+--- tax_yr = 2027 ---
+  rows=166258 | land_NA=166258 | impr_NA=166258
+  land: 166258 rows predicted
+  impr: 166258 rows predicted
+  total NA=0
+
+--- tax_yr = 2028 ---
+  rows=166258 | land_NA=166258 | impr_NA=166258
+  land: 166258 rows predicted
+  impr: 166258 rows predicted
+  total NA=0
+
+--- tax_yr = 2029 ---
+  rows=166258 | land_NA=166258 | impr_NA=166258
+  land: 166258 rows predicted
+  impr: 166258 rows predicted
+  total NA=0
+
+--- tax_yr = 2030 ---
+  rows=166258 | land_NA=166258 | impr_NA=166258
+  land: 166258 rows predicted
+  impr: 166258 rows predicted
+  total NA=0
+
+--- tax_yr = 2031 ---
+  rows=166258 | land_NA=166258 | impr_NA=166258
+  land: 166258 rows predicted
+  impr: 166258 rows predicted
+  total NA=0
+# A tibble: 5 × 7
+  tax_yr      n land_delta land_na impr_delta impr_na scenario
+   <dbl>  <int>      <int>   <int>      <int>   <int> <chr>   
+1   2027 166258     166258       0     166258       0 baseline
+2   2028 166258     166258       0     166258       0 baseline
+3   2029 166258     166258       0     166258       0 baseline
+4   2030 166258     166258       0     166258       0 baseline
+5   2031 166258     166258       0     166258       0 baseline
+💾 cached: panel_tbl_2006_2031_forecasted_baseline_res.rds
+💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_res.parquet
+
+--- Method counts, all scenarios ---
+# A tibble: 5 × 7
+  tax_yr      n land_delta land_na impr_delta impr_na scenario
+   <dbl>  <int>      <int>   <int>      <int>   <int> <chr>   
+1   2027 166258     166258       0     166258       0 baseline
+2   2028 166258     166258       0     166258       0 baseline
+3   2029 166258     166258       0     166258       0 baseline
+4   2030 166258     166258       0     166258       0 baseline
+5   2031 166258     166258       0     166258       0 baseline
+
+06_forecast_av_2026_2031_sequential.R complete (scenario = baseline).
+
+  [Apartment forecast (apt)]
+    detrended cs_apt_demand_units -> cs_apt_demand_units_yoy
+    detrended cs_apt_inventory_units -> cs_apt_inventory_units_yoy
+    CoStar: joined 45 cs_apt_* features (237,504/237,504 rows matched)
+    coalesced 12 suffixed feature columns
+  delta cap: predicted per-year dlog clamped to +/- 0.405
+  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 308 of 7,422 parcels have land but no improvement history through 2026 - improvements held at 0
+    note: 362 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    specialty regional rates (TY2027): 5,702 parcels | TY2026 AV $36.96B
+      spec 100  R1 Central / North  -8.36% |     5,064 parcels | TY2026 AV $34.99B
+      spec 100  R2 South          -10.09% |       638 parcels | TY2026 AV $1.98B
+      no parcels matched: spec 100 R3 East
+    rule 3 (specialty_actuals_policy = 'model') (TY2027): 1,052 parcels | TY2026 AV $4.53B
+      left to model=1052
+    rate source spec_region_report     | specialty=TRUE  |     5,702 parcels | prior AV $36.96B
+    rate source model                  | specialty=TRUE  |     1,052 parcels | prior AV $4.53B
+    rate source geo_report             | specialty=FALSE |       660 parcels | prior AV $1.50B
+    rate source model                  | specialty=FALSE |         8 parcels | prior AV $0.04B
+    Year 2027: 7422 parcels scored.
+      land-only: 308 parcel(s) held at 0 improvements
+  Forecasting year: 2028
+    rule 3 (specialty_actuals_policy = 'model') (TY2028): 6,754 parcels | TY2027 AV $38.59B
+      left to model=6754
+    rate source model                  | specialty=TRUE  |     6,754 parcels | prior AV $38.59B
+    rate source model                  | specialty=FALSE |       668 parcels | prior AV $1.51B
+    Year 2028: 7422 parcels scored.
+      land-only: 308 parcel(s) held at 0 improvements
+  Forecasting year: 2029
+    rule 3 (specialty_actuals_policy = 'model') (TY2029): 6,754 parcels | TY2028 AV $37.09B
+      left to model=6754
+    rate source model                  | specialty=TRUE  |     6,754 parcels | prior AV $37.09B
+    rate source model                  | specialty=FALSE |       668 parcels | prior AV $1.48B
+    Year 2029: 7422 parcels scored.
+      land-only: 308 parcel(s) held at 0 improvements
+  Forecasting year: 2030
+    rule 3 (specialty_actuals_policy = 'model') (TY2030): 6,754 parcels | TY2029 AV $37.13B
+      left to model=6754
+    rate source model                  | specialty=TRUE  |     6,754 parcels | prior AV $37.13B
+    rate source model                  | specialty=FALSE |       668 parcels | prior AV $1.48B
+    Year 2030: 7422 parcels scored.
+      land-only: 308 parcel(s) held at 0 improvements
+  Forecasting year: 2031
+    rule 3 (specialty_actuals_policy = 'model') (TY2031): 6,754 parcels | TY2030 AV $36.94B
+      left to model=6754
+    rate source model                  | specialty=TRUE  |     6,754 parcels | prior AV $36.94B
+    rate source model                  | specialty=FALSE |       668 parcels | prior AV $1.48B
+    Year 2031: 7422 parcels scored.
+      land-only: 308 parcel(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+
+06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_apt.rds
+  🧹 freed: panel_tbl_forecasted_com  (479 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_apt  (1401.8 MB)
+  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
+  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
+  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
+  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
+  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+
+  [Major Office forecast (office)]
+    CoStar: joined 39 cs_off_* features (50,528/50,528 rows matched)
+    coalesced 12 suffixed feature columns
+  delta cap: predicted per-year dlog clamped to +/- 0.405
+  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 45 of 1,579 parcels have land but no improvement history through 2026 - improvements held at 0
+    note: 104 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
+      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
+    specialty headline rates (TY2027): 47 parcels | TY2026 AV $2.16B
+    rule 3 (specialty_actuals_policy = 'model') (TY2027): 269 parcels | TY2026 AV $14.29B
+      left to model=269
+    rate source model                  | specialty=TRUE  |       269 parcels | prior AV $14.29B
+    rate source geo_report             | specialty=FALSE |     1,212 parcels | prior AV $6.05B
+    rate source specialty_report       | specialty=TRUE  |        47 parcels | prior AV $2.16B
+    rate source model                  | specialty=FALSE |        51 parcels | prior AV $0.37B
+    Year 2027: 1579 parcels scored.
+      land-only: 45 parcel(s) held at 0 improvements
+  Forecasting year: 2028
+    rule 3 (specialty_actuals_policy = 'model') (TY2028): 316 parcels | TY2027 AV $15.11B
+      left to model=316
+    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $15.11B
+    rate source model                  | specialty=FALSE |     1,263 parcels | prior AV $5.79B
+    Year 2028: 1579 parcels scored.
+      land-only: 45 parcel(s) held at 0 improvements
+  Forecasting year: 2029
+    rule 3 (specialty_actuals_policy = 'model') (TY2029): 316 parcels | TY2028 AV $13.94B
+      left to model=316
+    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $13.94B
+    rate source model                  | specialty=FALSE |     1,263 parcels | prior AV $5.66B
+    Year 2029: 1579 parcels scored.
+      land-only: 45 parcel(s) held at 0 improvements
+  Forecasting year: 2030
+    rule 3 (specialty_actuals_policy = 'model') (TY2030): 316 parcels | TY2029 AV $13.19B
+      left to model=316
+    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $13.19B
+    rate source model                  | specialty=FALSE |     1,263 parcels | prior AV $5.55B
+    Year 2030: 1579 parcels scored.
+      land-only: 45 parcel(s) held at 0 improvements
+  Forecasting year: 2031
+    rule 3 (specialty_actuals_policy = 'model') (TY2031): 316 parcels | TY2030 AV $12.70B
+      left to model=316
+    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $12.70B
+    rate source model                  | specialty=FALSE |     1,263 parcels | prior AV $5.46B
+    Year 2031: 1579 parcels scored.
+      land-only: 45 parcel(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+
+06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_office.rds
+  🧹 freed: panel_tbl_forecasted_com  (99.7 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_office  (291.6 MB)
+  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
+  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
+  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
+  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
+  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+
+  [Industrial forecast (industrial)]
+    CoStar: joined 39 cs_ind_* features (92,672/92,672 rows matched)
+    coalesced 12 suffixed feature columns
+  delta cap: predicted per-year dlog clamped to +/- 0.405
+  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 96 of 2,896 parcels have land but no improvement history through 2026 - improvements held at 0
+    note: 392 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
+      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
+    specialty headline rates (TY2027): 11 parcels | TY2026 AV $0.24B
+    rule 3 (specialty_actuals_policy = 'model') (TY2027): 284 parcels | TY2026 AV $3.82B
+      left to model=284
+    rate source geo_report             | specialty=FALSE |     2,497 parcels | prior AV $8.74B
+    rate source model                  | specialty=TRUE  |       284 parcels | prior AV $3.82B
+    rate source model                  | specialty=FALSE |       104 parcels | prior AV $0.65B
+    rate source specialty_report       | specialty=TRUE  |        11 parcels | prior AV $0.24B
+    Year 2027: 2896 parcels scored.
+      land-only: 96 parcel(s) held at 0 improvements
+  Forecasting year: 2028
+    rule 3 (specialty_actuals_policy = 'model') (TY2028): 295 parcels | TY2027 AV $4.06B
+      left to model=295
+    rate source model                  | specialty=FALSE |     2,601 parcels | prior AV $9.55B
+    rate source model                  | specialty=TRUE  |       295 parcels | prior AV $4.06B
+    Year 2028: 2896 parcels scored.
+      land-only: 96 parcel(s) held at 0 improvements
+  Forecasting year: 2029
+    rule 3 (specialty_actuals_policy = 'model') (TY2029): 295 parcels | TY2028 AV $4.02B
+      left to model=295
+    rate source model                  | specialty=FALSE |     2,601 parcels | prior AV $9.55B
+    rate source model                  | specialty=TRUE  |       295 parcels | prior AV $4.02B
+    Year 2029: 2896 parcels scored.
+      land-only: 96 parcel(s) held at 0 improvements
+  Forecasting year: 2030
+    rule 3 (specialty_actuals_policy = 'model') (TY2030): 295 parcels | TY2029 AV $4.02B
+      left to model=295
+    rate source model                  | specialty=FALSE |     2,601 parcels | prior AV $9.61B
+    rate source model                  | specialty=TRUE  |       295 parcels | prior AV $4.02B
+    Year 2030: 2896 parcels scored.
+      land-only: 96 parcel(s) held at 0 improvements
+  Forecasting year: 2031
+    rule 3 (specialty_actuals_policy = 'model') (TY2031): 295 parcels | TY2030 AV $4.01B
+      left to model=295
+    rate source model                  | specialty=FALSE |     2,601 parcels | prior AV $9.69B
+    rate source model                  | specialty=TRUE  |       295 parcels | prior AV $4.01B
+    Year 2031: 2896 parcels scored.
+      land-only: 96 parcel(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+
+06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_industrial.rds
+  🧹 freed: panel_tbl_forecasted_com  (182.8 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_industrial  (534.6 MB)
+  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
+  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
+  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
+  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
+  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+
+  [Retail forecast (retail)]
+    CoStar: joined 38 cs_ret_* features (52,338/64,416 rows matched)
+    coalesced 12 suffixed feature columns
+  delta cap: predicted per-year dlog clamped to +/- 0.405
+  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 40 of 2,013 parcels have land but no improvement history through 2026 - improvements held at 0
+    note: 186 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
+      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
+    specialty headline rates (TY2027): 90 parcels | TY2026 AV $2.08B
+    rate source geo_report             | specialty=FALSE |     1,913 parcels | prior AV $6.03B
+    rate source specialty_report       | specialty=TRUE  |        90 parcels | prior AV $2.08B
+    rate source model                  | specialty=FALSE |        10 parcels | prior AV $0.07B
+    Year 2027: 2013 parcels scored.
+      land-only: 40 parcel(s) held at 0 improvements
+  Forecasting year: 2028
+    rule 3 (specialty_actuals_policy = 'model') (TY2028): 90 parcels | TY2027 AV $2.09B
+      left to model=90
+    rate source model                  | specialty=FALSE |     1,923 parcels | prior AV $6.33B
+    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.09B
+    Year 2028: 2013 parcels scored.
+      land-only: 40 parcel(s) held at 0 improvements
+  Forecasting year: 2029
+    rule 3 (specialty_actuals_policy = 'model') (TY2029): 90 parcels | TY2028 AV $2.07B
+      left to model=90
+    rate source model                  | specialty=FALSE |     1,923 parcels | prior AV $6.37B
+    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.07B
+    Year 2029: 2013 parcels scored.
+      land-only: 40 parcel(s) held at 0 improvements
+  Forecasting year: 2030
+    rule 3 (specialty_actuals_policy = 'model') (TY2030): 90 parcels | TY2029 AV $2.07B
+      left to model=90
+    rate source model                  | specialty=FALSE |     1,923 parcels | prior AV $6.41B
+    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.07B
+    Year 2030: 2013 parcels scored.
+      land-only: 40 parcel(s) held at 0 improvements
+  Forecasting year: 2031
+    rule 3 (specialty_actuals_policy = 'model') (TY2031): 90 parcels | TY2030 AV $2.07B
+      left to model=90
+    rate source model                  | specialty=FALSE |     1,923 parcels | prior AV $6.45B
+    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.07B
+    Year 2031: 2013 parcels scored.
+      land-only: 40 parcel(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+
+06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_retail.rds
+  🧹 freed: panel_tbl_forecasted_com  (126.6 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_retail  (370.2 MB)
+  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
+  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
+  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
+  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
+  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+
+  [Hospitality forecast (hospitality)]
+    CoStar: joined 38 cs_hosp_* features (38,240/38,240 rows matched)
+    coalesced 12 suffixed feature columns
+  delta cap: predicted per-year dlog clamped to +/- 0.405
+  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 19 of 1,195 parcels have land but no improvement history through 2026 - improvements held at 0
+    note: 30 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
+      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
+    specialty headline rates (TY2027): 50 parcels | TY2026 AV $0.18B
+    rule 3 (specialty_actuals_policy = 'model') (TY2027): 122 parcels | TY2026 AV $4.35B
+      left to model=122
+    rate source model                  | specialty=TRUE  |       122 parcels | prior AV $4.35B
+    rate source geo_report             | specialty=FALSE |     1,004 parcels | prior AV $1.86B
+    rate source specialty_report       | specialty=TRUE  |        50 parcels | prior AV $0.18B
+    rate source model                  | specialty=FALSE |        19 parcels | prior AV $0.13B
+    Year 2027: 1195 parcels scored.
+      land-only: 19 parcel(s) held at 0 improvements
+  Forecasting year: 2028
+    rule 3 (specialty_actuals_policy = 'model') (TY2028): 172 parcels | TY2027 AV $4.37B
+      left to model=172
+    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.37B
+    rate source model                  | specialty=FALSE |     1,023 parcels | prior AV $1.90B
+    Year 2028: 1195 parcels scored.
+      land-only: 19 parcel(s) held at 0 improvements
+  Forecasting year: 2029
+    rule 3 (specialty_actuals_policy = 'model') (TY2029): 172 parcels | TY2028 AV $4.29B
+      left to model=172
+    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.29B
+    rate source model                  | specialty=FALSE |     1,023 parcels | prior AV $1.95B
+    Year 2029: 1195 parcels scored.
+      land-only: 19 parcel(s) held at 0 improvements
+  Forecasting year: 2030
+    rule 3 (specialty_actuals_policy = 'model') (TY2030): 172 parcels | TY2029 AV $4.33B
+      left to model=172
+    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.33B
+    rate source model                  | specialty=FALSE |     1,023 parcels | prior AV $1.97B
+    Year 2030: 1195 parcels scored.
+      land-only: 19 parcel(s) held at 0 improvements
+  Forecasting year: 2031
+    rule 3 (specialty_actuals_policy = 'model') (TY2031): 172 parcels | TY2030 AV $4.43B
+      left to model=172
+    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.43B
+    rate source model                  | specialty=FALSE |     1,023 parcels | prior AV $2.03B
+    Year 2031: 1195 parcels scored.
+      land-only: 19 parcel(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+
+06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_hospitality.rds
+  🧹 freed: panel_tbl_forecasted_com  (75.2 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_hospitality  (219.9 MB)
+  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
+  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
+  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
+  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
+  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+
+  [Medical forecast (medical)]
+    coalesced 12 suffixed feature columns
+  delta cap: predicted per-year dlog clamped to +/- 0.405
+  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 9 of 259 parcels have land but no improvement history through 2026 - improvements held at 0
+    note: 33 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
+      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
+    specialty headline rates (TY2027): 35 parcels | TY2026 AV $0.93B
+    rate source geo_report             | specialty=FALSE |       224 parcels | prior AV $1.14B
+    rate source specialty_report       | specialty=TRUE  |        35 parcels | prior AV $0.93B
+    Year 2027: 259 parcels scored.
+      land-only: 9 parcel(s) held at 0 improvements
+  Forecasting year: 2028
+    rule 3 (specialty_actuals_policy = 'model') (TY2028): 35 parcels | TY2027 AV $0.82B
+      left to model=35
+    rate source model                  | specialty=FALSE |       224 parcels | prior AV $1.14B
+    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.82B
+    Year 2028: 259 parcels scored.
+      land-only: 9 parcel(s) held at 0 improvements
+  Forecasting year: 2029
+    rule 3 (specialty_actuals_policy = 'model') (TY2029): 35 parcels | TY2028 AV $0.80B
+      left to model=35
+    rate source model                  | specialty=FALSE |       224 parcels | prior AV $1.14B
+    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.80B
+    Year 2029: 259 parcels scored.
+      land-only: 9 parcel(s) held at 0 improvements
+  Forecasting year: 2030
+    rule 3 (specialty_actuals_policy = 'model') (TY2030): 35 parcels | TY2029 AV $0.82B
+      left to model=35
+    rate source model                  | specialty=FALSE |       224 parcels | prior AV $1.15B
+    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.82B
+    Year 2030: 259 parcels scored.
+      land-only: 9 parcel(s) held at 0 improvements
+  Forecasting year: 2031
+    rule 3 (specialty_actuals_policy = 'model') (TY2031): 35 parcels | TY2030 AV $0.83B
+      left to model=35
+    rate source model                  | specialty=FALSE |       224 parcels | prior AV $1.16B
+    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.83B
+    Year 2031: 259 parcels scored.
+      land-only: 9 parcel(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+
+06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_medical.rds
+  🧹 freed: panel_tbl_forecasted_com  (13.9 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_medical  (40.6 MB)
+  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
+  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
+  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
+  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
+  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+
+  [Commercial Other forecast]
+  ℹ️  No aggregate commercial models available — com_other uses residual growth
+Running xx_com_other_growth.R ...
+xx_com_other_growth.R loaded.
+  com_other method = com_weighted
+  ⚠️  residual rate exceeded ±15% in 4 year(s) — capped
+   tax_yr dlog_other              basis
+    <int>      <num>             <char>
+1:   2008  0.1507831 value_weighted_com
+2:   2016 -0.3425995 value_weighted_com
+3:   2017  0.1658561 value_weighted_com
+4:   2018  0.5366455 value_weighted_com
+  residual growth rate by year:
+   tax_yr   pct              basis
+    <int> <num>             <char>
+1:   2027  1.35 value_weighted_com
+2:   2028 -3.23 value_weighted_com
+3:   2029 -0.73 value_weighted_com
+4:   2030 -0.56 value_weighted_com
+5:   2031 -0.28 value_weighted_com
+  com_other base values: 2,780 land/imps | 0 total-only | 1,269 unusable
+  KCA geo actuals anchor 3,810 com_other parcel-years
+
+  --- com_other rate sources ---
+   tax_yr     co_rate_source parcels  av_B
+    <int>             <char>   <int> <num>
+1:   2027         geo_report    3810  5.34
+2:   2027 value_weighted_com     239  0.33
+3:   2028 value_weighted_com    4049  5.49
+4:   2029 value_weighted_com    4049  5.45
+5:   2030 value_weighted_com    4049  5.42
+6:   2031 value_weighted_com    4049  5.40
+  com_other residual: 2,780 parcels forecast into the horizon
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com_other.rds
+  🧹 freed: panel_tbl_forecasted_com  (214.5 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_com_other  (631.5 MB)
+
+  Combining commercial subgroup forecasts into panel_tbl_forecasted_com ...
+  💾 cached combined commercial forecast: 621,216 rows, 7 subgroups
+  [Condo forecast]
+  Loaded condo extended panel from cache.
+  Forecasting condo AV for years: 2027, 2028, 2029, 2030, 2031
+  land-only gate: 6 of 97,558 units have land but no improvement history through 2026 - improvements held at 0
+    note: 60,702 unit(s) have neither land nor improvement history - NOT gated, these need separate review
+  Forecasting year: 2027
+    Year 2027: 97558 units scored.
+      land-only: 6 unit(s) held at 0 improvements
+  Forecasting year: 2028
+    Year 2028: 97558 units scored.
+      land-only: 6 unit(s) held at 0 improvements
+  Forecasting year: 2029
+    Year 2029: 97558 units scored.
+      land-only: 6 unit(s) held at 0 improvements
+  Forecasting year: 2030
+    Year 2030: 97558 units scored.
+      land-only: 6 unit(s) held at 0 improvements
+  Forecasting year: 2031
+    Year 2031: 97558 units scored.
+      land-only: 6 unit(s) held at 0 improvements
+  💾 cached: panel_tbl_2006_2031_forecasted_baseline_condo.rds
+  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_condo.parquet
+
+06_forecast_av_2026_2031_sequential_condo.R loaded (scenario = baseline)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_res, panel_tbl_2027_2031_inputs_baseline_condo, panel_tbl_2006_2031_inputs_baseline_res  (19720 MB)
+
+==============================================
+run_main_ml() finished — elapsed: 26.2 min
+  prop_scope = all | scenario = baseline
+  commercial subgroups: apt, office, industrial, retail, hospitality, medical + other
+==============================================
 Warning messages:
-1: In eval(ei, envir) :
-  train_res not found in panel_tbl — training on full panel. Re-run 02_transfrm.R to add train_res.
-2: There was 1 warning in `mutate()`.
-ℹ In argument: `across(all_of(fct_cols), ~forcats::fct_explicit_na(.x, na_level = "Unknown"))`.
-Caused by warning:
-! `fct_explicit_na()` was deprecated in forcats 1.0.0.
+1: `fct_explicit_na()` was deprecated in forcats 1.0.0.
 ℹ Please use `fct_na_value_to_level()` instead.
 This warning is displayed once per session.
 Call lifecycle::last_lifecycle_warnings() to see where this warning was generated. 
-3: In eval(ei, envir) :
-  train_res not found in panel_tbl — training on full panel. Re-run 02_transfrm.R to add train_res.
-Called from: drop_single_level_dv_vars(obj)
+2: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+3: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+4: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+5: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+6: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
