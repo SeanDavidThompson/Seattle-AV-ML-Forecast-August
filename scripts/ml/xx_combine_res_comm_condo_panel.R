@@ -34,11 +34,9 @@ if (!exists("av_history_cln", envir = .GlobalEnv)) {
 }
 
 panel_res   <- as.data.table(copy(panel_tbl))
-res_snap    <- copy(parcel_res_full)
 comm_snap   <- copy(parcel_comm_full)
 condo_snap  <- copy(parcel_condo_full)
 av_hist     <- copy(av_history_cln)
-setDT(res_snap)
 setDT(comm_snap)
 setDT(condo_snap)
 setDT(av_hist)
@@ -54,53 +52,30 @@ add_missing_cols <- function(dt, cols) {
 year_spine <- unique(panel_res[, .(tax_yr, join_key = 1L)])
 
 # =============================================================================
-# SECTION 0 — Cross-track deduplication (small MF in both res and comm)
+# SECTION 0 — Cross-track deduplication: REMOVED (no longer reachable)
 # =============================================================================
-# Identical logic to xx_combine_res_comm_panel.R. Must be duplicated here
-# because this script is sourced instead of the two-track version when
-# prop_scope includes condo.
+# This used to drop residential parcels whose Major also appeared in
+# EXTR_CommBldg, to stop 2-4 unit small-MF parcels being forecast by both
+# tracks.  The tracks now partition on PropType, so the overlap it cleaned up
+# cannot occur:
+#
+#   02_transfrm.R        residential track keeps prop_type == "R"
+#   01_import_comm.R     commercial universe is  prop_type == "C"
+#                        (and the same levy_code_list)
+#   EXTR_Parcel          one PropType per parcel
+#   => res ids INTERSECT com ids = {} by construction
+#
+# Keeping it would now do harm rather than nothing: it matched on the 6-digit
+# MAJOR, not on parcel_id, so a residential parcel sharing a Major with any
+# commercial parcel was dropped from the residential panel even though it was
+# never in the commercial panel.  Under the PropType split that is pure loss.
+#
+# The invariant it used to enforce is asserted for real in SECTION 7 below,
+# which stops the run on any res/com overlap.
+#
+# is_small_mf itself is untouched (02_transfrm.R:159, qa_trajectory.R); only
+# the derived is_small_mf_in_comm flag and the row drop are gone.
 
-comm_majors <- unique(substr(comm_snap$parcel_id, 1, 6))
-
-if ("is_small_mf" %in% names(res_snap)) {
-  res_snap[, is_small_mf_in_comm := as.integer(
-    is_small_mf == 1L & substr(parcel_id, 1, 6) %in% comm_majors
-  )]
-} else {
-  lu_col <- grep("living_unit", names(res_snap), value = TRUE)[1]
-  if (!is.na(lu_col) && !is.null(lu_col)) {
-    res_snap[, is_small_mf_in_comm := as.integer(
-      get(lu_col) >= 2L & get(lu_col) <= 4L &
-      substr(parcel_id, 1, 6) %in% comm_majors
-    )]
-  } else {
-    res_snap[, is_small_mf_in_comm := 0L]
-    warning("nbr_living_units not found in parcel_res_full. ",
-            "is_small_mf_in_comm set to 0 — cross-track dedup skipped.")
-  }
-}
-
-n_duped <- sum(res_snap$is_small_mf_in_comm, na.rm = TRUE)
-message("  Cross-track dedup: ", n_duped,
-        " small-MF parcels (2-4 units) exist in both ResBldg and CommBldg",
-        "\n    -> Keeping in commercial track only")
-
-if ("is_small_mf_in_comm" %in% names(panel_res))
-  panel_res[, is_small_mf_in_comm := NULL]
-panel_res[res_snap[, .(parcel_id, is_small_mf_in_comm)],
-          on = "parcel_id",
-          is_small_mf_in_comm := i.is_small_mf_in_comm]
-panel_res[is.na(is_small_mf_in_comm), is_small_mf_in_comm := 0L]
-panel_res <- panel_res[is_small_mf_in_comm == 0L]
-
-parcel_res_full_out <- as.data.table(copy(parcel_res_full))
-if ("is_small_mf_in_comm" %in% names(parcel_res_full_out))
-  parcel_res_full_out[, is_small_mf_in_comm := NULL]
-parcel_res_full_out[res_snap[, .(parcel_id, is_small_mf_in_comm)],
-                    on = "parcel_id",
-                    is_small_mf_in_comm := i.is_small_mf_in_comm]
-parcel_res_full_out[is.na(is_small_mf_in_comm), is_small_mf_in_comm := 0L]
-assign("parcel_res_full", parcel_res_full_out, envir = .GlobalEnv)
 
 # =============================================================================
 # SECTION 1 — Tag residential panel
@@ -118,7 +93,23 @@ panel_com_wide <- comm_snap[year_spine, on = "join_key", allow.cartesian = TRUE]
 panel_com_wide[, join_key := NULL]
 setDT(panel_com_wide)
 
-av_comm <- av_hist[parcel_id %in% comm_snap$parcel_id]
+# av_hist was normalised to no-dash above, which is right for the residential
+# and condo panels but not for comm_snap: 01_import_comm.R builds a DASHED
+# parcel_id, so matching the two as-is silently returns nothing and the whole
+# commercial panel arrives with NA AV.  Match the commercial id format here.
+com_dashed <- any(grepl("-", utils::head(comm_snap$parcel_id, 10L)))
+av_comm_src <- if (com_dashed) {
+  .a <- copy(av_hist)
+  .a[, parcel_id := paste0(substr(parcel_id, 1, 6), "-", substr(parcel_id, 7, 10))]
+  .a
+} else av_hist
+av_comm <- av_comm_src[parcel_id %chin% comm_snap$parcel_id]
+message("  commercial AV history matched: ",
+        uniqueN(av_comm$parcel_id), " of ", uniqueN(comm_snap$parcel_id),
+        " parcels (id format: ", if (com_dashed) "dashed" else "no-dash", ")")
+if (uniqueN(av_comm$parcel_id) == 0L)
+  stop("No commercial parcel matched av_history_cln — parcel_id formats ",
+       "disagree between comm_snap and av_history_cln.")
 av_cols <- intersect(names(av_comm),
   c("parcel_id","tax_yr","appr_land_val","appr_imps_val","total_assessed",
     "log_appr_land_val","log_appr_imps_val","log_total_assessed",
@@ -309,7 +300,95 @@ message("    com:   ",  nrow(panel_tbl_com))
 message("    condo: ",  nrow(panel_tbl_condo))
 
 # =============================================================================
-# SECTION 7 — Export
+# SECTION 7 — Partition assertions (res/com duplication guard)
+# =============================================================================
+# Two invariants, both hard stops. The whole point of the PropType split is
+# that a parcel is forecast exactly once; if that breaks, every downstream
+# citywide total double-counts and the failure is otherwise silent.
+#
+#   A. zero parcel_id overlap between the residential and commercial panels
+#   B. res + com parcel counts reconcile to the Seattle levy-code population
+#      of EXTR_Parcel, by PropType
+#
+# Condo units are reported alongside but NOT added into B: condo UNITS are not
+# rows in EXTR_Parcel (the complex Major is), so they are not part of that
+# population and adding them would guarantee a false mismatch.
+{
+  .nd <- function(x) gsub("-", "", as.character(x), fixed = TRUE)
+  res_ids   <- unique(.nd(panel_tbl_res$parcel_id))
+  com_ids   <- unique(.nd(panel_tbl_com$parcel_id))
+  condo_ids <- unique(.nd(panel_tbl_condo$parcel_id))
+
+  # ---- A. overlap ----------------------------------------------------------
+  dup_ids <- intersect(res_ids, com_ids)
+  message("  [assert] res parcels: ", length(res_ids),
+          " | com parcels: ", length(com_ids),
+          " | condo units: ", length(condo_ids))
+  if (length(dup_ids) > 0)
+    stop("Res/com parcel duplication: ", length(dup_ids),
+         " parcel_id(s) are in BOTH panels and would be forecast twice. ",
+         "First 10: ", paste(utils::head(dup_ids, 10), collapse = ", "),
+         "\n  Check the PropType filters in 02_transfrm.R and ",
+         "01_import_comm.R — they must partition EXTR_Parcel, not overlap.")
+  message("  [assert] res/com parcel_id overlap: 0 — OK")
+
+  # ---- B. reconciliation to the Seattle levy-code population ---------------
+  .lcl <- get0("levy_code_list", envir = .GlobalEnv)
+  .kd  <- get0("kca_date_data_extracted", envir = .GlobalEnv)
+  .pp  <- if (is.null(.kd)) NA_character_
+          else here::here("data", "kca", .kd, "EXTR_Parcel.csv")
+  if (is.null(.lcl) || is.na(.pp) || !file.exists(.pp)) {
+    # Not a soft failure: 01_import_comm.R reads this same file to build the
+    # commercial universe, so if it is unreachable here the run is already
+    # inconsistent and the reconciliation must not be quietly skipped.
+    stop("Cannot reconcile panel counts: levy_code_list or EXTR_Parcel.csv ",
+         "unavailable (looked for: ", .pp, "). The res/com partition is ",
+         "therefore unverified — refusing to continue.")
+  } else {
+    .xp <- data.table::fread(.pp, encoding = "Latin-1")
+    data.table::setnames(.xp, names(.xp), tolower(names(.xp)))
+    .xp[, .pid  := paste0(stringr::str_pad(trimws(as.character(major)), 6, "left", "0"),
+                          stringr::str_pad(trimws(as.character(minor)), 4, "left", "0"))]
+    .xp[, .levy := stringr::str_pad(trimws(as.character(levycode)), 4, "left", "0")]
+    .xp[, .pt   := toupper(trimws(as.character(proptype)))]
+    .sea <- unique(.xp[.levy %chin% .lcl], by = ".pid")
+    exp_r <- .sea[.pt == "R", .N]
+    exp_c <- .sea[.pt == "C", .N]
+
+    message("  [assert] Seattle levy-code EXTR_Parcel population: ",
+            nrow(.sea), " parcels (PropType R ", exp_r, " | C ", exp_c, ")")
+
+    # Panel rows must be a SUBSET of the expected class: anything else means a
+    # filter let the wrong PropType through.
+    stray_r <- setdiff(res_ids, .sea[.pt == "R", .pid])
+    stray_c <- setdiff(com_ids, .sea[.pt == "C", .pid])
+    if (length(stray_r) > 0 || length(stray_c) > 0)
+      stop("Panel/PropType mismatch: ", length(stray_r),
+           " residential parcel(s) are not Seattle PropType R and ",
+           length(stray_c), " commercial parcel(s) are not Seattle PropType C.",
+           "\n  res e.g.: ", paste(utils::head(stray_r, 5), collapse = ", "),
+           "\n  com e.g.: ", paste(utils::head(stray_c, 5), collapse = ", "))
+
+    miss_r <- exp_r - length(res_ids)
+    miss_c <- exp_c - length(com_ids)
+    message("  [assert] res ", length(res_ids), " / ", exp_r,
+            " (missing ", miss_r, ") | com ", length(com_ids), " / ", exp_c,
+            " (missing ", miss_c, ")")
+    if (miss_r != 0L || miss_c != 0L)
+      stop("Panel counts do not reconcile to the Seattle levy-code population: ",
+           "res is short ", miss_r, " of ", exp_r, " PropType R parcels, ",
+           "com is short ", miss_c, " of ", exp_c, " PropType C parcels. ",
+           "Parcels are being lost between EXTR_Parcel and the panel — most ",
+           "likely dropped by the AV-history join in ",
+           "xx_combine_parcel_history_changes.R or by a transform filter.")
+    message("  [assert] res + com reconcile to the Seattle population — OK")
+    rm(.xp, .sea)
+  }
+  rm(.nd, res_ids, com_ids, condo_ids, dup_ids)
+}
+
+# =============================================================================
+# SECTION 8 — Export
 # =============================================================================
 assign("panel_tbl_res",   panel_tbl_res,   envir = .GlobalEnv)
 assign("panel_tbl_com",   panel_tbl_com,   envir = .GlobalEnv)
