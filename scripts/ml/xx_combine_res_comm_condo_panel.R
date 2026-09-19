@@ -34,11 +34,9 @@ if (!exists("av_history_cln", envir = .GlobalEnv)) {
 }
 
 panel_res   <- as.data.table(copy(panel_tbl))
-res_snap    <- copy(parcel_res_full)
 comm_snap   <- copy(parcel_comm_full)
 condo_snap  <- copy(parcel_condo_full)
 av_hist     <- copy(av_history_cln)
-setDT(res_snap)
 setDT(comm_snap)
 setDT(condo_snap)
 setDT(av_hist)
@@ -54,53 +52,30 @@ add_missing_cols <- function(dt, cols) {
 year_spine <- unique(panel_res[, .(tax_yr, join_key = 1L)])
 
 # =============================================================================
-# SECTION 0 — Cross-track deduplication (small MF in both res and comm)
+# SECTION 0 — Cross-track deduplication: REMOVED (no longer reachable)
 # =============================================================================
-# Identical logic to xx_combine_res_comm_panel.R. Must be duplicated here
-# because this script is sourced instead of the two-track version when
-# prop_scope includes condo.
+# This used to drop residential parcels whose Major also appeared in
+# EXTR_CommBldg, to stop 2-4 unit small-MF parcels being forecast by both
+# tracks.  The tracks now partition on PropType, so the overlap it cleaned up
+# cannot occur:
+#
+#   02_transfrm.R        residential track keeps prop_type == "R"
+#   01_import_comm.R     commercial universe is  prop_type == "C"
+#                        (and the same levy_code_list)
+#   EXTR_Parcel          one PropType per parcel
+#   => res ids INTERSECT com ids = {} by construction
+#
+# Keeping it would now do harm rather than nothing: it matched on the 6-digit
+# MAJOR, not on parcel_id, so a residential parcel sharing a Major with any
+# commercial parcel was dropped from the residential panel even though it was
+# never in the commercial panel.  Under the PropType split that is pure loss.
+#
+# The invariant it used to enforce is asserted for real in SECTION 7 below,
+# which stops the run on any res/com overlap.
+#
+# is_small_mf itself is untouched (02_transfrm.R:159, qa_trajectory.R); only
+# the derived is_small_mf_in_comm flag and the row drop are gone.
 
-comm_majors <- unique(substr(comm_snap$parcel_id, 1, 6))
-
-if ("is_small_mf" %in% names(res_snap)) {
-  res_snap[, is_small_mf_in_comm := as.integer(
-    is_small_mf == 1L & substr(parcel_id, 1, 6) %in% comm_majors
-  )]
-} else {
-  lu_col <- grep("living_unit", names(res_snap), value = TRUE)[1]
-  if (!is.na(lu_col) && !is.null(lu_col)) {
-    res_snap[, is_small_mf_in_comm := as.integer(
-      get(lu_col) >= 2L & get(lu_col) <= 4L &
-      substr(parcel_id, 1, 6) %in% comm_majors
-    )]
-  } else {
-    res_snap[, is_small_mf_in_comm := 0L]
-    warning("nbr_living_units not found in parcel_res_full. ",
-            "is_small_mf_in_comm set to 0 — cross-track dedup skipped.")
-  }
-}
-
-n_duped <- sum(res_snap$is_small_mf_in_comm, na.rm = TRUE)
-message("  Cross-track dedup: ", n_duped,
-        " small-MF parcels (2-4 units) exist in both ResBldg and CommBldg",
-        "\n    -> Keeping in commercial track only")
-
-if ("is_small_mf_in_comm" %in% names(panel_res))
-  panel_res[, is_small_mf_in_comm := NULL]
-panel_res[res_snap[, .(parcel_id, is_small_mf_in_comm)],
-          on = "parcel_id",
-          is_small_mf_in_comm := i.is_small_mf_in_comm]
-panel_res[is.na(is_small_mf_in_comm), is_small_mf_in_comm := 0L]
-panel_res <- panel_res[is_small_mf_in_comm == 0L]
-
-parcel_res_full_out <- as.data.table(copy(parcel_res_full))
-if ("is_small_mf_in_comm" %in% names(parcel_res_full_out))
-  parcel_res_full_out[, is_small_mf_in_comm := NULL]
-parcel_res_full_out[res_snap[, .(parcel_id, is_small_mf_in_comm)],
-                    on = "parcel_id",
-                    is_small_mf_in_comm := i.is_small_mf_in_comm]
-parcel_res_full_out[is.na(is_small_mf_in_comm), is_small_mf_in_comm := 0L]
-assign("parcel_res_full", parcel_res_full_out, envir = .GlobalEnv)
 
 # =============================================================================
 # SECTION 1 — Tag residential panel
@@ -118,7 +93,23 @@ panel_com_wide <- comm_snap[year_spine, on = "join_key", allow.cartesian = TRUE]
 panel_com_wide[, join_key := NULL]
 setDT(panel_com_wide)
 
-av_comm <- av_hist[parcel_id %in% comm_snap$parcel_id]
+# av_hist was normalised to no-dash above, which is right for the residential
+# and condo panels but not for comm_snap: 01_import_comm.R builds a DASHED
+# parcel_id, so matching the two as-is silently returns nothing and the whole
+# commercial panel arrives with NA AV.  Match the commercial id format here.
+com_dashed <- any(grepl("-", utils::head(comm_snap$parcel_id, 10L)))
+av_comm_src <- if (com_dashed) {
+  .a <- copy(av_hist)
+  .a[, parcel_id := paste0(substr(parcel_id, 1, 6), "-", substr(parcel_id, 7, 10))]
+  .a
+} else av_hist
+av_comm <- av_comm_src[parcel_id %chin% comm_snap$parcel_id]
+message("  commercial AV history matched: ",
+        uniqueN(av_comm$parcel_id), " of ", uniqueN(comm_snap$parcel_id),
+        " parcels (id format: ", if (com_dashed) "dashed" else "no-dash", ")")
+if (uniqueN(av_comm$parcel_id) == 0L)
+  stop("No commercial parcel matched av_history_cln — parcel_id formats ",
+       "disagree between comm_snap and av_history_cln.")
 av_cols <- intersect(names(av_comm),
   c("parcel_id","tax_yr","appr_land_val","appr_imps_val","total_assessed",
     "log_appr_land_val","log_appr_imps_val","log_total_assessed",
@@ -309,7 +300,18 @@ message("    com:   ",  nrow(panel_tbl_com))
 message("    condo: ",  nrow(panel_tbl_condo))
 
 # =============================================================================
-# SECTION 7 — Export
+# SECTION 7 — Partition assertions (res/com duplication guard)
+# =============================================================================
+# Defined in 00_init.R so this and xx_combine_res_comm_panel.R share one copy.
+# Hard-stops on any res/com parcel_id overlap and on any parcel of the wrong
+# PropType. A shortfall against the Seattle levy-code population of
+# EXTR_Parcel is REPORTED, not fatal — ids land in res_com_reconcile_gap.
+if (!exists("assert_res_com_partition", envir = .GlobalEnv))
+  stop("assert_res_com_partition() not found — source 00_init.R first.")
+assert_res_com_partition(panel_tbl_res, panel_tbl_com, panel_tbl_condo)
+
+# =============================================================================
+# SECTION 8 — Export
 # =============================================================================
 assign("panel_tbl_res",   panel_tbl_res,   envir = .GlobalEnv)
 assign("panel_tbl_com",   panel_tbl_com,   envir = .GlobalEnv)

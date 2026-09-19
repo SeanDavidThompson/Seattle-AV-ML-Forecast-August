@@ -224,9 +224,68 @@ if ("prop_type" %in% names(prf)) {
             " parcels with non-modellable prop_type (M/N/U/X/T)")
     prf <- prf[!prop_type %in% excl_types]
   }
+  # ---- Residential track = PropType "R" only --------------------------------
+  # 01_import_res.R filters EXTR_Parcel on levy code alone and never on
+  # PropType, so every Seattle COMMERCIAL parcel also entered the residential
+  # track.  Those parcels are additionally carried by the commercial track,
+  # which forecast them a second time.  The residential track keeps PropType R;
+  # PropType C is the commercial track's to own.
+  .res_av_ty2026 <- function(ids) {
+    av <- NULL
+    if (exists("av_history_cln", envir = .GlobalEnv)) {
+      av <- data.table::as.data.table(get("av_history_cln", envir = .GlobalEnv))
+    } else {
+      .cd <- get0("cache_dir", envir = .GlobalEnv,
+                  ifnotfound = here::here("data", "cache"))
+      .ap <- file.path(.cd, "av_history_cln.rds")
+      if (file.exists(.ap)) av <- data.table::as.data.table(readRDS(.ap))
+    }
+    if (is.null(av) || !nrow(av) || !"tax_yr" %in% names(av)) return(NA_real_)
+    av <- av[tax_yr == 2026L]
+    if (!nrow(av)) return(NA_real_)
+    # av_history_cln builds dashed parcel_ids; the residential panel does not.
+    .want <- gsub("-", "", as.character(ids), fixed = TRUE)
+    av <- av[gsub("-", "", parcel_id, fixed = TRUE) %chin% .want]
+    sum(data.table::fifelse(is.na(av$appr_land_val), 0, av$appr_land_val) +
+        data.table::fifelse(is.na(av$appr_imps_val), 0, av$appr_imps_val),
+        na.rm = TRUE)
+  }
+  .fmt_av <- function(x) if (is.na(x)) "unavailable (av_history_cln not loaded)"
+                         else sprintf("$%.3fB", x / 1e9)
+
+  n_before  <- nrow(prf)
+  av_before <- .res_av_ty2026(prf$parcel_id)
+  # useNA: a NA prop_type is dropped by the == "R" filter below, so it has to
+  # be visible here rather than vanishing into the "removed" count unexplained.
+  .pt_tab <- table(prf$prop_type, useNA = "ifany")
+  message("    PropType split before residential filter: ",
+          paste(sprintf("%s=%s",
+                        ifelse(is.na(names(.pt_tab)), "<NA>", names(.pt_tab)),
+                        as.integer(.pt_tab)), collapse = " | "))
+  .n_na_pt <- sum(is.na(prf$prop_type))
+  if (.n_na_pt > 0)
+    message("    note: ", .n_na_pt, " parcel(s) have a NA prop_type and are ",
+            "dropped with the non-R parcels")
+  message("    residential track before: ", n_before, " parcels | TY2026 AV ",
+          .fmt_av(av_before))
+
+  prf <- prf[prop_type == "R"]
+
+  n_after  <- nrow(prf)
+  av_after <- .res_av_ty2026(prf$parcel_id)
+  message("    residential track after:  ", n_after, " parcels | TY2026 AV ",
+          .fmt_av(av_after))
+  message("    removed (non-R PropType): ", n_before - n_after, " parcels | TY2026 AV ",
+          if (is.na(av_before) || is.na(av_after)) "unavailable"
+          else sprintf("$%.3fB", (av_before - av_after) / 1e9))
+  rm(.res_av_ty2026, .fmt_av, .pt_tab, .n_na_pt,
+     n_before, n_after, av_before, av_after)
+
   message("    prop_type filter complete: ", nrow(prf), " parcels remain")
 } else {
-  message("    prop_type column not found — skipping exempt parcel type filter")
+  stop("prop_type column not found in parcel_res_full — the residential track ",
+       "cannot be restricted to PropType R, and commercial parcels would be ",
+       "forecast twice. Check the EXTR_Parcel read in 01_import_res.R.")
 }
 
 # Exempt flag from AV roll (if available — joined during 01_import.R or
