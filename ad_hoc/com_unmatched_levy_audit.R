@@ -35,13 +35,19 @@ com[, pid := nodash(parcel_id)]
 com[, major := substr(pid, 1, 6)]
 
 # TY2026 AV: certified actual where present, model prediction otherwise
-pick <- function(dt, nm) if (nm %in% names(dt)) as.numeric(dt[[nm]])
-        else rep(NA_real_, nrow(dt))
+pick <- function(dt, nm) {
+  if (nm %in% names(dt)) as.numeric(dt[[nm]]) else rep(NA_real_, nrow(dt))
+}
+# NA-safe sum: NA only when BOTH sides are NA (a land-only parcel keeps its land)
+addna <- function(a, b) {
+  fifelse(is.na(a) & is.na(b), NA_real_,
+          fifelse(is.na(a), 0, a) + fifelse(is.na(b), 0, b))
+}
 com[, av_ty2026 := fcoalesce(
   pick(com, "total_assessed"),
-  pick(com, "appr_land_val") + pick(com, "appr_imps_val"),
+  addna(pick(com, "appr_land_val"), pick(com, "appr_imps_val")),
   pick(com, "pred_total_assessed"),
-  pick(com, "pred_appr_land_val") + pick(com, "pred_appr_imps_val")
+  addna(pick(com, "pred_appr_land_val"), pick(com, "pred_appr_imps_val"))
 )]
 com_ty <- unique(com[, .(pid, major, av_ty2026)], by = "pid")
 cat(sprintf("com panel TY2026: %s parcels | $%sB\n",
@@ -122,8 +128,12 @@ if (file.exists(rp_path)) {
   src_rp <- unique(rp[, .(pid, levy_code)], by = "pid")
 }
 
-lk <- function(src, ids) if (is.null(src)) rep(NA_character_, length(ids))
-                         else src[data.table(pid = ids), on = "pid", x.levy_code]
+# NB: use match(), not a data.table join on a bare `pid` symbol — inside
+# src[...] the name `pid` resolves to src's own column, not the caller's.
+lk <- function(src, ids) {
+  if (is.null(src)) return(rep(NA_character_, length(ids)))
+  src$levy_code[match(ids, src$pid)]
+}
 rest[, levy_parcel := lk(src_parcel, pid)]
 rest[, levy_vh     := lk(src_vh,     pid)]
 rest[, levy_rp     := lk(src_rp,     pid)]
@@ -142,7 +152,7 @@ for (nm in c("parcel", "vh", "rp")) {
   dc <- dist_col(dt)
   if (!is.null(dc) && !is.na(dc)) {
     map <- unique(dt[, .(pid, d = as.character(get(dc)))], by = "pid")
-    rest[, paste0("district_", nm) := map[data.table(pid = pid), on = "pid", x.d]]
+    rest[, (paste0("district_", nm)) := map$d[match(rest$pid, map$pid)]]
     cat(sprintf("district column found in %s: %s\n", nm, dc))
   }
 }
