@@ -1,3 +1,12 @@
-> # from the pipeline root on the share
-> robocopy "data\cache" "data\backtest\preDedup_20260918" panel_tbl_*_forecasted_*.rds
-Error: '\c' is an unrecognized escape in character string (<input>:1:16)
+src  <- here::here("data", "cache")
+dest <- here::here("data", "backtest", "preDedup_20260918")
+dir.create(dest, recursive = TRUE, showWarnings = FALSE)
+fs <- list.files(src, pattern = "^panel_tbl_.*_forecasted_.*[.]rds", full.names = TRUE)
+sum(file.copy(fs, dest, overwrite = TRUE, copy.date = TRUE))   # expect 9
+
+o_src <- here::here("data", "outputs", "area_backtest")
+o_dst <- here::here("data", "outputs", "area_backtest_preDedup_20260918")
+dir.create(o_dst, recursive = TRUE, showWarnings = FALSE)
+file.copy(list.files(o_src, full.names = TRUE), o_dst, overwrite = TRUE, copy.date = TRUE)
+
+file.remove(here::here("data", "cache", "area_report_actuals_2026.rds"))
