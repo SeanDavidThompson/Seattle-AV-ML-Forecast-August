@@ -261,7 +261,133 @@ comm_parcel_full[total_gross_sqft > 0,
 comm_parcel_full[total_gross_sqft == 0, net_to_gross_ratio := NA_real_]
 
 setDT(comm_parcel_full)
-message("    comm_parcel_full rows: ", nrow(comm_parcel_full))
+message("    comm_parcel_full rows (from building records): ",
+        nrow(comm_parcel_full))
+
+# =============================================================================
+# 5. Parcel universe — Seattle levy codes AND PropType C
+# =============================================================================
+# Everything above is keyed on having a commercial BUILDING record, which is
+# the wrong universe on both sides:
+#
+#   too wide  - EXTR_CommBldg is countywide, so parcels in Kent, Bellevue and
+#               Renton ride along. They hold no Seattle AV (av_history_cln is
+#               levy-filtered) and were carried as zero-value rows.
+#   too narrow- Seattle PropType C parcels with no commercial building are
+#               missing entirely: vacant commercial land, parking lots, and
+#               the KCA SpecArea 100 apartment parcels that the specialty
+#               appraiser values.
+#
+# The authoritative universe is EXTR_Parcel under the SAME two conditions the
+# residential track now uses, on the other side of the PropType split:
+#   levy_code %in% levy_code_list   (as 01_import_res.R:19)
+#   prop_type == "C"                (02_transfrm.R keeps "R" for residential)
+# A parcel has exactly one PropType, so res and com partition cleanly and no
+# parcel can be forecast by both tracks.
+# =============================================================================
+levy_code_list <- get0("levy_code_list", envir = .GlobalEnv)
+if (is.null(levy_code_list))
+  stop("levy_code_list not found in .GlobalEnv — source 00_init.R before ",
+       "01_import_comm.R.")
+
+message("  Reading EXTR_Parcel for the commercial universe ...")
+parcel_universe_raw <- read_kca(file.path(kca_root, "EXTR_Parcel.csv"))
+
+# read_kca() clean_names() the header, but KCA spellings vary by vintage.
+pick1 <- function(dt, cands, what) {
+  hit <- cands[cands %in% names(dt)]
+  if (!length(hit))
+    stop("EXTR_Parcel has no ", what, " column (looked for: ",
+         paste(cands, collapse = ", "), ")")
+  hit[1]
+}
+u_major <- pick1(parcel_universe_raw, c("major"), "Major")
+u_minor <- pick1(parcel_universe_raw, c("minor"), "Minor")
+u_ptype <- pick1(parcel_universe_raw, c("prop_type", "property_type"), "PropType")
+u_levy  <- pick1(parcel_universe_raw, c("levy_code"), "LevyCode")
+
+opt <- function(dt, cands) {
+  hit <- cands[cands %in% names(dt)]
+  if (length(hit)) hit[1] else NA_character_
+}
+u_area <- opt(parcel_universe_raw, c("area"))
+u_spec <- opt(parcel_universe_raw, c("spec_area"))
+u_ssub <- opt(parcel_universe_raw, c("spec_sub_area", "specsubarea"))
+u_pu   <- opt(parcel_universe_raw, c("present_use"))
+u_zone <- opt(parcel_universe_raw, c("current_zoning"))
+
+int_or_na <- function(dt, cn)
+  if (is.na(cn)) NA_integer_ else suppressWarnings(as.integer(dt[[cn]]))
+
+com_universe <- data.table(
+  major          = str_pad(trimws(as.character(parcel_universe_raw[[u_major]])), 6, "left", "0"),
+  minor          = str_pad(trimws(as.character(parcel_universe_raw[[u_minor]])), 4, "left", "0"),
+  prop_type_extr = toupper(trimws(as.character(parcel_universe_raw[[u_ptype]]))),
+  levy_code      = str_pad(trimws(as.character(parcel_universe_raw[[u_levy]])), 4, "left", "0"),
+  area           = int_or_na(parcel_universe_raw, u_area),
+  spec_area      = int_or_na(parcel_universe_raw, u_spec),
+  spec_sub_area  = int_or_na(parcel_universe_raw, u_ssub),
+  present_use    = int_or_na(parcel_universe_raw, u_pu),
+  current_zoning = if (is.na(u_zone)) NA_character_
+                   else as.character(parcel_universe_raw[[u_zone]])
+)
+com_universe[, parcel_id := paste0(major, "-", minor)]
+com_universe <- unique(com_universe, by = "parcel_id")
+
+n_extr    <- nrow(com_universe)
+n_seattle <- com_universe[levy_code %chin% levy_code_list, .N]
+com_universe <- com_universe[levy_code %chin% levy_code_list &
+                               prop_type_extr == "C"]
+message("    EXTR_Parcel: ", n_extr, " parcels | Seattle levy codes: ",
+        n_seattle, " | of those PropType C: ", nrow(com_universe))
+rm(parcel_universe_raw)
+
+# ---- Join the building metrics onto the universe ---------------------------
+# LEFT join from the universe: parcels with a building record keep today's
+# values; parcels without one are new to the track; building-record parcels
+# outside the universe are dropped.
+bldg_ids   <- comm_parcel_full$parcel_id
+n_dropped  <- sum(!bldg_ids %chin% com_universe$parcel_id)
+comm_parcel_full <- merge(com_universe, comm_parcel_full,
+                          by = "parcel_id", all.x = TRUE)
+comm_parcel_full[, has_comm_bldg := as.integer(!is.na(n_comm_bldgs))]
+n_new <- sum(comm_parcel_full$has_comm_bldg == 0L)
+
+message("    dropped (building record outside Seattle PropType C): ", n_dropped)
+message("    added (Seattle PropType C with no commercial building): ", n_new)
+if (n_new > 0) {
+  .sa100 <- comm_parcel_full[has_comm_bldg == 0L &
+                               !is.na(spec_area) & spec_area == 100L, .N]
+  message("      of which KCA SpecArea 100 (apartments): ", .sa100)
+  message("      spec_area present on newcomers: ",
+          comm_parcel_full[has_comm_bldg == 0L & !is.na(spec_area) &
+                             spec_area > 0L, .N],
+          " | present_use present: ",
+          comm_parcel_full[has_comm_bldg == 0L & !is.na(present_use), .N])
+  rm(.sa100)
+}
+
+# Counts and areas are genuinely zero for a parcel with no building. Year and
+# quality fields are NOT: a 0 there would read as a real build year or a real
+# quality grade, so they stay NA and the models treat them as missing.
+zero_fill_new <- c(
+  "n_comm_bldgs", "total_gross_sqft", "total_net_sqft",
+  "n_sections", "n_distinct_uses", "sect_gross_sqft", "sect_net_sqft",
+  "office_sqft", "retail_sqft", "industrial_sqft", "institutional_sqft",
+  "parking_sqft", "parking_garage_sqft", "surface_parking_sqft",
+  "canopy_sqft", "other_feature_sqft", "total_feature_sqft",
+  "total_parking_sqft", "office_pct", "retail_pct", "industrial_pct",
+  "parking_pct", "has_sprinklers", "has_elevators"
+)
+for (col in zero_fill_new) {
+  if (col %in% names(comm_parcel_full))
+    comm_parcel_full[is.na(get(col)), (col) := 0]
+}
+
+message("    comm_parcel_full rows (final universe): ",
+        nrow(comm_parcel_full), " | with buildings: ",
+        sum(comm_parcel_full$has_comm_bldg == 1L), " | land/no-building: ",
+        sum(comm_parcel_full$has_comm_bldg == 0L))
 
 # Assign to GlobalEnv
 assign("comm_bldg",        comm_bldg,        envir = .GlobalEnv)
