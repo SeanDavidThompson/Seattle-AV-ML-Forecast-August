@@ -1,3 +1,4 @@
+
 > # =============================================================================
 > # com_unmatched_levy_audit.R   — READ ONLY, writes nothing
 > # -----------------------------------------------------------------------------
@@ -38,3 +39,319 @@
 > pick <- function(dt, nm) if (nm %in% names(dt)) as.numeric(dt[[nm]])
 >         else rep(NA_real_, nrow(dt))
 Error: unexpected 'else' in "        else"
+
+> # =============================================================================
+> # com_unmatched_levy_audit.R   — READ ONLY, writes nothing
+> # -----------------------------------------------------------------------------
+> # For the TY2026 parcels in the commercial panel that are NOT in the Seattle
+> # levy-code population of EXTR_Parcel:
+> #   (a) how many are condo Majors (EXTR_CondoComplex / EXTR_CondoUnit)
+> #   (b) for the remainder, levy code + district from whatever source carries
+> #       one, with parcel counts and TY2026 AV by levy code
+> #
+> # Run from the repo root (or anywhere `here::here()` resolves to it) on a
+> # machine that has data/kca/<kca_date>/ and data/cache/ populated.
+> # =============================================================================
+> 
+> suppressPackageStartupMessages({
++   library(data.table); library(here); library(stringr); library(scales)
++ })
+> 
+> kca_date       <- "2026-07-28"                 # CFG$kca_date_data_extracted
+> scenario       <- "baseline"
+> levy_code_list <- c("0010","0011","0013","0014","0016","0025","0030","0032")
+> kca_root       <- here::here("data", "kca", kca_date)
+> cache_dir      <- here::here("data", "cache")
+> 
+> pad4  <- function(x) str_pad(trimws(as.character(x)), 4, "left", "0")
+> pad6  <- function(x) str_pad(trimws(as.character(x)), 6, "left", "0")
+> nodash<- function(x) gsub("-", "", as.character(x), fixed = TRUE)
+> bil   <- function(x) sprintf("%.3f", sum(x, na.rm = TRUE) / 1e9)
+> 
+> # ---- 1. Commercial panel, TY2026 -------------------------------------------
+> panel_path <- file.path(cache_dir,
++   paste0("panel_tbl_2006_2031_forecasted_", scenario, "_com.rds"))
+> stopifnot(file.exists(panel_path))
+> com <- as.data.table(readRDS(panel_path))[tax_yr == 2026]
+> com[, pid := nodash(parcel_id)]
+> com[, major := substr(pid, 1, 6)]
+> 
+> # TY2026 AV: certified actual where present, model prediction otherwise
+> pick <- function(dt, nm) if (nm %in% names(dt)) as.numeric(dt[[nm]])
+>         else rep(NA_real_, nrow(dt))
+Error: unexpected 'else' in "        else"
+
+> # =============================================================================
+> # com_unmatched_levy_audit.R   — READ ONLY, writes nothing
+> # -----------------------------------------------------------------------------
+> # For the TY2026 parcels in the commercial panel that are NOT in the Seattle
+> # levy-code population of EXTR_Parcel:
+> #   (a) how many are condo Majors (EXTR_CondoComplex / EXTR_CondoUnit)
+> #   (b) for the remainder, levy code + district from whatever source carries
+> #       one, with parcel counts and TY2026 AV by levy code
+> #
+> # Run from the repo root (or anywhere `here::here()` resolves to it) on a
+> # machine that has data/kca/<kca_date>/ and data/cache/ populated.
+> # =============================================================================
+> 
+> suppressPackageStartupMessages({
++   library(data.table); library(here); library(stringr); library(scales)
++ })
+> 
+> kca_date       <- "2026-07-28"                 # CFG$kca_date_data_extracted
+> scenario       <- "baseline"
+> levy_code_list <- c("0010","0011","0013","0014","0016","0025","0030","0032")
+> kca_root       <- here::here("data", "kca", kca_date)
+> cache_dir      <- here::here("data", "cache")
+> 
+> pad4  <- function(x) str_pad(trimws(as.character(x)), 4, "left", "0")
+> pad6  <- function(x) str_pad(trimws(as.character(x)), 6, "left", "0")
+> nodash<- function(x) gsub("-", "", as.character(x), fixed = TRUE)
+> bil   <- function(x) sprintf("%.3f", sum(x, na.rm = TRUE) / 1e9)
+> 
+> # ---- 1. Commercial panel, TY2026 -------------------------------------------
+> panel_path <- file.path(cache_dir,
++   paste0("panel_tbl_2006_2031_forecasted_", scenario, "_com.rds"))
+> stopifnot(file.exists(panel_path))
+> com <- as.data.table(readRDS(panel_path))[tax_yr == 2026]
+> com[, pid := nodash(parcel_id)]
+> com[, major := substr(pid, 1, 6)]
+> 
+> # TY2026 AV: certified actual where present, model prediction otherwise
+> pick <- function(dt, nm) {
++   if (nm %in% names(dt)) as.numeric(dt[[nm]]) else rep(NA_real_, nrow(dt))
++ }
+> # NA-safe sum: NA only when BOTH sides are NA (a land-only parcel keeps its land)
+> addna <- function(a, b) {
++   fifelse(is.na(a) & is.na(b), NA_real_,
++           fifelse(is.na(a), 0, a) + fifelse(is.na(b), 0, b))
++ }
+> com[, av_ty2026 := fcoalesce(
++   pick(com, "total_assessed"),
++   addna(pick(com, "appr_land_val"), pick(com, "appr_imps_val")),
++   pick(com, "pred_total_assessed"),
++   addna(pick(com, "pred_appr_land_val"), pick(com, "pred_appr_imps_val"))
++ )]
+> com_ty <- unique(com[, .(pid, major, av_ty2026)], by = "pid")
+> cat(sprintf("com panel TY2026: %s parcels | $%sB\n",
++             comma(nrow(com_ty)), bil(com_ty$av_ty2026)))
+com panel TY2026: 31,374 parcels | $86.999B
+> 
+> # ---- 2. Seattle levy-code population in EXTR_Parcel -------------------------
+> parcel <- fread(file.path(kca_root, "EXTR_Parcel.csv"), encoding = "Latin-1")
+|--------------------------------------------------|
+|==================================================|
+> setnames(parcel, names(parcel), tolower(names(parcel)))
+> parcel[, pid := paste0(pad6(major), pad4(minor))]
+> parcel[, levy_code := pad4(levycode)]
+> seattle_pids <- parcel[levy_code %chin% levy_code_list, unique(pid)]
+> cat(sprintf("EXTR_Parcel: %s rows | Seattle levy codes: %s parcels\n",
++             comma(nrow(parcel)), comma(length(seattle_pids))))
+EXTR_Parcel: 628,548 rows | Seattle levy codes: 189,268 parcels
+> 
+> unm <- com_ty[!pid %chin% seattle_pids]
+> cat(sprintf("\nTY2026 com parcels NOT in Seattle levy-code population: %s | $%sB\n",
++             comma(nrow(unm)), bil(unm$av_ty2026)))
+
+TY2026 com parcels NOT in Seattle levy-code population: 16,392 | $0.329B
+> 
+> # =============================================================================
+> # (a) Condo Majors — legitimately absent from EXTR_Parcel
+> # =============================================================================
+> read_if <- function(f) {
++   p <- file.path(kca_root, f)
++   if (!file.exists(p)) { cat("  (missing: ", f, ")\n", sep = ""); return(NULL) }
++   d <- fread(p, encoding = "Latin-1"); setnames(d, names(d), tolower(names(d))); d
++ }
+> cplx <- read_if("EXTR_CondoComplex.csv")
+> unit <- read_if("EXTR_CondoUnit.csv")
+> 
+> cplx_major <- if (!is.null(cplx)) unique(pad6(cplx$major)) else character(0)
+> unit_major <- if (!is.null(unit)) unique(pad6(unit$major)) else character(0)
+> unit_pid   <- if (!is.null(unit) && "minor" %in% names(unit))
++                 unique(paste0(pad6(unit$major), pad4(unit$minor))) else character(0)
+> 
+> unm[, in_cplx_major := major %chin% cplx_major]
+> unm[, in_unit_major := major %chin% unit_major]
+> unm[, in_unit_pid   := pid   %chin% unit_pid]
+> unm[, is_condo      := in_cplx_major | in_unit_major]
+> 
+> cat("\n--- (a) condo coverage of the unmatched set ---\n")
+
+--- (a) condo coverage of the unmatched set ---
+> print(unm[, .(parcels = .N, ty2026_av_B = as.numeric(bil(av_ty2026))),
++           by = .(in_cplx_major, in_unit_major)][order(-parcels)])
+   in_cplx_major in_unit_major parcels ty2026_av_B
+          <lgcl>        <lgcl>   <int>       <num>
+1:         FALSE         FALSE   16069       0.000
+2:          TRUE          TRUE     251       0.052
+3:          TRUE         FALSE      67       0.277
+4:         FALSE          TRUE       5       0.000
+> cat(sprintf("\ncondo Major (either table): %s parcels | $%sB\n",
++             comma(sum(unm$is_condo)), bil(unm[is_condo == TRUE]$av_ty2026)))
+
+condo Major (either table): 323 parcels | $0.329B
+> cat(sprintf("exact CondoUnit parcel_id match: %s\n", comma(sum(unm$in_unit_pid))))
+exact CondoUnit parcel_id match: 6
+> cat(sprintf("NOT condo (carried to part b): %s parcels | $%sB\n",
++             comma(sum(!unm$is_condo)), bil(unm[is_condo == FALSE]$av_ty2026)))
+NOT condo (carried to part b): 16,069 parcels | $0.000B
+> 
+> # =============================================================================
+> # (b) Levy code + district for the non-condo remainder
+> # =============================================================================
+> rest <- unm[is_condo == FALSE]
+> 
+> # Source 1: EXTR_Parcel itself, countywide (no levy filter) — the expected hit
+> # for anything that is simply outside the Seattle levy codes.
+> src_parcel <- unique(parcel[, .(pid, levy_code)], by = "pid")
+> 
+> # Source 2: ValueHistory (unfiltered), TY2026 row per parcel
+> vh_path <- file.path(kca_root, "value_history", "EXTR_ValueHistory_V.csv")
+> src_vh <- NULL
+> if (file.exists(vh_path)) {
++   vh <- fread(vh_path, encoding = "Latin-1")
++   setnames(vh, names(vh), tolower(names(vh)))
++   vh[, pid := paste0(pad6(major), pad4(minor))]
++   vh[, levy_code := pad4(levycode)]
++   setorderv(vh, c("pid", "taxyr", "changedate"))
++   src_vh <- unique(vh[taxyr == 2026, .(pid, levy_code)], by = "pid", fromLast = TRUE)
++ }
+|--------------------------------------------------|
+|==================================================|
+> 
+> # Source 3: RPAcct
+> rp_path <- file.path(kca_root, "EXTR_RPAcct_NoName.csv")
+> src_rp <- NULL
+> if (file.exists(rp_path)) {
++   rp <- fread(rp_path, encoding = "Latin-1")
++   setnames(rp, names(rp), tolower(names(rp)))
++   rp[, pid := paste0(pad6(major), pad4(minor))]
++   rp[, levy_code := pad4(levycode)]
++   src_rp <- unique(rp[, .(pid, levy_code)], by = "pid")
++ }
+|--------------------------------------------------|
+|==================================================|
+> 
+> # NB: use match(), not a data.table join on a bare `pid` symbol — inside
+> # src[...] the name `pid` resolves to src's own column, not the caller's.
+> lk <- function(src, ids) {
++   if (is.null(src)) return(rep(NA_character_, length(ids)))
++   src$levy_code[match(ids, src$pid)]
++ }
+> rest[, levy_parcel := lk(src_parcel, pid)]
+> rest[, levy_vh     := lk(src_vh,     pid)]
+> rest[, levy_rp     := lk(src_rp,     pid)]
+> rest[, levy_code   := fcoalesce(levy_parcel, levy_vh, levy_rp)]
+> rest[, levy_source := fcase(!is.na(levy_parcel), "EXTR_Parcel",
++                             !is.na(levy_vh),     "ValueHistory",
++                             !is.na(levy_rp),     "RPAcct",
++                             default = "none")]
+> 
+> # District: whatever column any source carries
+> dist_col <- function(dt) if (is.null(dt)) NULL else
++   grep("district", names(dt), value = TRUE, ignore.case = TRUE)[1]
+> for (nm in c("parcel", "vh", "rp")) {
++   dt <- switch(nm, parcel = parcel, vh = if (exists("vh")) vh else NULL,
++                rp = if (exists("rp")) rp else NULL)
++   dc <- dist_col(dt)
++   if (!is.null(dc) && !is.na(dc)) {
++     map <- unique(dt[, .(pid, d = as.character(get(dc)))], by = "pid")
++     rest[, (paste0("district_", nm)) := map$d[match(rest$pid, map$pid)]]
++     cat(sprintf("district column found in %s: %s\n", nm, dc))
++   }
++ }
+district column found in parcel: districtname
+> dcols <- grep("^district_", names(rest), value = TRUE)
+> if (length(dcols)) rest[, district := do.call(fcoalesce, lapply(.SD, as.character)),
++                         .SDcols = dcols] else rest[, district := NA_character_]
+> 
+> cat("\n--- (b) levy-code source coverage ---\n")
+
+--- (b) levy-code source coverage ---
+> print(rest[, .(parcels = .N), by = levy_source][order(-parcels)])
+   levy_source parcels
+        <char>   <int>
+1: EXTR_Parcel   16069
+> 
+> cat("\n--- (b) parcel counts and TY2026 AV by levy code ---\n")
+
+--- (b) parcel counts and TY2026 AV by levy code ---
+> by_levy <- rest[, .(parcels = .N,
++                     ty2026_av_B = round(sum(av_ty2026, na.rm = TRUE) / 1e9, 4),
++                     av_missing  = sum(is.na(av_ty2026)),
++                     districts   = paste(sort(unique(na.omit(district))), collapse = "; ")),
++                 by = .(levy_code)][order(-parcels)]
+> print(by_levy, nrows = 100)
+     levy_code parcels ty2026_av_B av_missing   districts
+        <char>   <int>       <num>      <int>      <char>
+  1:      0330    1456           0          0    BELLEVUE
+  2:      1526    1356           0          0        KENT
+  3:      2100    1121           0          0      RENTON
+  4:      0133    1117           0          0      AUBURN
+  5:      1205     852           0          0 FEDERAL WAY
+ ---                                                     
+275:      5226       1           0          0 KING COUNTY
+276:      0216       1           0          0      AUBURN
+277:      5090       1           0          0 KING COUNTY
+278:      4340       1           0          0 KING COUNTY
+279:      1074       1           0          0  DES MOINES
+> cat(sprintf("\ntotal: %s parcels | $%sB | %s with no levy code anywhere\n",
++             comma(nrow(rest)), bil(rest$av_ty2026),
++             comma(sum(is.na(rest$levy_code)))))
+
+total: 16,069 parcels | $0.000B | 0 with no levy code anywhere
+> 
+> if (length(dcols)) {
++   cat("\n--- (b) by district ---\n")
++   print(rest[, .(parcels = .N,
++                  ty2026_av_B = round(sum(av_ty2026, na.rm = TRUE) / 1e9, 4)),
++              by = district][order(-parcels)], nrows = 100)
++ }
+
+--- (b) by district ---
+            district parcels ty2026_av_B
+              <char>   <int>       <num>
+ 1:             KENT    1783           0
+ 2:         BELLEVUE    1552           0
+ 3:      KING COUNTY    1452           0
+ 4:           RENTON    1287           0
+ 5:           AUBURN    1233           0
+ 6:      FEDERAL WAY     949           0
+ 7:         KIRKLAND     935           0
+ 8:           BURIEN     880           0
+ 9:          REDMOND     805           0
+10:          TUKWILA     667           0
+11:        SHORELINE     636           0
+12:         ISSAQUAH     551           0
+13:         ENUMCLAW     412           0
+14:          BOTHELL     346           0
+15:           SeaTac     333           0
+16:       DES MOINES     317           0
+17:      WOODINVILLE     310           0
+18:          KENMORE     225           0
+19:       NORTH BEND     216           0
+20:       SNOQUALMIE     157           0
+21:     MAPLE VALLEY     131           0
+22:    MERCER ISLAND     130           0
+23:        COVINGTON     118           0
+24:        SAMMAMISH     114           0
+25:           DUVALL      84           0
+26:        CARNATION      73           0
+27:    BLACK DIAMOND      67           0
+28:          PACIFIC      65           0
+29: LAKE FOREST PARK      54           0
+30:           ALGONA      49           0
+31:        NEWCASTLE      47           0
+32:    NORMANDY PARK      38           0
+33:        SKYKOMISH      23           0
+34:           MEDINA      11           0
+35:           MILTON      10           0
+36:       CLYDE HILL       8           0
+37:     YARROW POINT       1           0
+            district parcels ty2026_av_B
+              <char>   <int>       <num>
+> 
+> cat("\nRead-only check complete — nothing written.\n")
+
+Read-only check complete — nothing written.
