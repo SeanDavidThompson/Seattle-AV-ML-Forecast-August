@@ -1,81 +1,187 @@
-p <- here::here("scripts", "ml", "main_ml.R")
-x <- paste(readLines(p, warn = FALSE), collapse = "\n")
+==============================================================================
+1. EXTR_Parcel: Seattle levy-code population
+==============================================================================
+EXTR_Parcel rows: 628,548 | Seattle levy codes: 189,268 parcels
+KCA SpecArea == 100 (Apartments): 5,921 parcels
 
-anchor <- 'message("    dropped ", n_drop, " features with no CoStar forecast coverage")'
-stopifnot(lengths(gregexpr(anchor, x, fixed = TRUE)) == 1)
+==============================================================================
+2. Certified TY2026 AV (EXTR_ValueHistory_V.csv)
+==============================================================================
+Processed 218105 groups out of 218105. 100% done. Time elapsed: 11s. ETA: 0s.
+TY2026 ValueHistory rows (Seattle, T, no val reason): 218,105 parcels | $293.203B
 
-blk <- paste(
-'',
-'    # --- Drop non-stationary econ LEVELS where a growth twin exists ------',
-'    # econ_*_lvl_lag1 series are levels that rise almost every year, so a',
-'    # tree reads them as a time index rather than a market signal. The',
-'    # 2026-09 audit found econ_population_thous_lvl_lag1 fully broken in',
-'    # all six commercial models: perfectly monotone, forecast range',
-'    # 3,310-3,393 entirely above the training max of 3,294, and the highest',
-'    # split at 3,278 - so every forecast year lands in one leaf and the',
-'    # response is a constant. Case-Shiller index level had no splits in the',
-'    # forecast region in five of six.',
-'    #',
-'    # Same defect as cs_apt_demand_units, but the fix is simpler: the',
-'    # matching _yoy_lag1 growth series is ALREADY a predictor, so the',
-'    # stationary information is retained and only the trend proxy goes.',
-'    # A level is dropped ONLY when its growth twin is present.',
-'    if (isTRUE(get0("drop_econ_levels", envir = .GlobalEnv,',
-'                    ifnotfound = TRUE))) {',
-'      lvl_cand <- grep("^econ_.*_lvl_lag[0-9]+$", usable_cols, value = TRUE)',
-'      if (length(lvl_cand)) {',
-'        twin <- sub("_lvl_lag", "_yoy_lag", lvl_cand)',
-'        has_twin <- twin %in% usable_cols',
-'        to_drop <- lvl_cand[has_twin]',
-'        kept    <- lvl_cand[!has_twin]',
-'        if (length(to_drop)) {',
-'          usable_cols <- setdiff(usable_cols, to_drop)',
-'          message("    dropped ", length(to_drop),',
-'                  " non-stationary econ level(s) with a growth twin:")',
-'          for (z in to_drop) message("       - ", z)',
-'        }',
-'        if (length(kept))',
-'          message("    kept ", length(kept),',
-'                  " econ level(s) with NO growth twin: ",',
-'                  paste(kept, collapse = ", "))',
-'      }',
-'    }',
-'',
-sep = "\n")
+==============================================================================
+3. Commercial panel, tax_yr 2026
+==============================================================================
+panel: panel_tbl_2006_2031_forecasted_baseline_com.rds
+com panel TY2026: 31,374 parcels | spec_area == 100: 7,581 parcels
+  of which inside the Seattle levy-code population: 14,982 parcels (spec_area == 100: 5,119)
 
-x <- sub(anchor, paste0(anchor, blk), x, fixed = TRUE)
-writeLines(x, p)
-cat("drop_econ_levels occurrences:", lengths(gregexpr("drop_econ_levels", x, fixed = TRUE)), "\n")
+==============================================================================
+(a) Agreement: KCA SpecArea 100  vs  panel spec_area 100, TY2026
+==============================================================================
+     bucket parcels av_missing in_com_panel ty2026_av_B
+     <char>   <int>      <int>        <int>       <num>
+1:     both    5119          0         5119      34.186
+2: KCA-only     802        127            0       1.883
 
-for (sg in c("apt","office","industrial","retail","hospitality","medical")) {
-  f <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_baseline_%s.rds", sg)
-  if (file.exists(f)) file.copy(f, sub("baseline", "PREecondrop_baseline", f), overwrite = TRUE)
-}
+union: 5,921 parcels | $36.069B
 
-for (sg in c("apt","office","industrial","retail","hospitality","medical")) {
-  f <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_baseline_%s.rds", sg)
-  if (file.exists(f)) file.copy(f, sub("baseline", "PREecondrop_baseline", f), overwrite = TRUE)
-}
+==============================================================================
+(b) Disagreement composition
+==============================================================================
 
-source(here::here("scripts", "ml", "main_ml.R"))
-run_main_ml(scenario = "baseline", prop_scope = "com",
-            forecast_only = TRUE, model_replicate = TRUE)
-            
-library(data.table)
-sgs <- c("apt","office","industrial","retail","hospitality","medical")
+--- panel-only: 0 parcels | $0.000B ---
 
-cmp <- rbindlist(lapply(sgs, function(sg) {
-  old <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_PREecondrop_baseline_%s.rds", sg)
-  new <- sprintf("./data/cache/panel_tbl_2006_2031_forecasted_baseline_%s.rds", sg)
-  if (!file.exists(old) || !file.exists(new)) return(NULL)
-  g <- function(f) {
-    d <- readRDS(f); setDT(d); d[, tax_yr := as.integer(tax_yr)]
-    d[tax_yr >= 2027, .(imps = sum(pred_appr_imps_val, na.rm = TRUE)), by = tax_yr][order(tax_yr)]
-  }
-  a <- g(old); b <- g(new)
-  data.table(subgroup = sg,
-             before_cum = round(100 * (a[["imps"]][5] / a[["imps"]][1] - 1), 2),
-             after_cum  = round(100 * (b[["imps"]][5] / b[["imps"]][1] - 1), 2))
-}))
-cmp[, change_pp := round(after_cum - before_cum, 2)]
-print(cmp)
+--- KCA-only: 802 parcels | $1.883B ---
+top PresentUse:
+    present_use parcels  av_B                                            pu_desc
+          <int>   <int> <num>                                             <char>
+ 1:          11     283 0.600 Apartment                                         
+ 2:          16     255 0.750 Apartment(Mixed Use)                              
+ 3:         301      87 0.071 Vacant(Multi-family)                              
+ 4:         309      54 0.116 Vacant(Commercial)                                
+ 5:         159      45 0.101 Parking(Assoc)                                    
+ 6:          18      14 0.009 Apartment(Subsidized)                             
+ 7:           2      10 0.012 Single Family(Res Use/Zone)                       
+ 8:           6      10 0.011 Single Family(C/I Zone)                           
+ 9:           5       6 0.007 4-Plex                                            
+10:         180       6 0.029 Parking(Commercial Lot)                           
+11:         101       5 0.012 Retail Store                                      
+12:         216       4 0.014 Service Building                                  
+spec_area the pipeline assigned instead:
+      panel_spec_area com_subgroup parcels  av_B
+               <char>       <char>   <int> <num>
+1: (not in com panel)         <NA>     802 1.883
+
+==============================================================================
+(c) Agreed apartments by SpecSubArea -> report regions R1/R2/R3
+==============================================================================
+both-call-apartments: 5,119 parcels across 41 SpecSubAreas
+
+report regions:
+   spec_region       area_name pct_change n_nbhds
+         <int>          <char>      <num>   <int>
+1:           1 Central / North      -8.36      33
+2:           2           South     -10.09      29
+3:           3            East       2.14      11
+
+parcels per region:
+   spec_region       area_name nbhds parcels   av_B
+         <int>          <char> <int>   <int>  <num>
+1:           1 Central / North    31    4557 32.470
+2:           2           South    10     562  1.721
+
+inventory from: 100.pdf
+
+parcels per neighborhood vs report project counts.
+NOTE: Specialty 100 is a COUNTYWIDE report, so its project counts cover
+all of King County while these parcels are Seattle levy codes only —
+parcels-per-project is well under 1 wherever a region reaches outside
+Seattle, and is a coverage ratio, not an error.
+    spec_region  nbhd          nbhd_name report_projects agreed_parcels parcels_per_project  av_B
+          <int> <int>             <char>           <int>          <int>               <num> <num>
+ 1:           1     5           Downtown              43             46               1.070 3.075
+ 2:           1    10            Regrade              85             85               1.000 3.212
+ 3:           1    15                LQA             209            210               1.005 1.872
+ 4:           1    20                SLU              64             64               1.000 3.006
+ 5:           1    30      International              36             37               1.028 0.241
+ 6:           1    35                 CD             182            184               1.011 0.546
+ 7:           1    40       Mad / Leschi              34             34               1.000 0.135
+ 8:           1    45                 QA             156            156               1.000 0.730
+ 9:           1    50                NQA              50             51               1.020 0.173
+10:           1    55           Westlake              54             56               1.037 0.817
+11:           1    60            Roanoke             169            172               1.018 0.705
+12:           1    65        C Hill East             461            461               1.000 2.348
+13:           1    70            Belmont             297            298               1.003 2.168
+14:           1    75           Magnolia              48             61               1.271 0.296
+15:           1    80           Interbay             140            141               1.007 0.555
+16:           1    85         First Hill             140            140               1.000 1.868
+17:           1    90          Greenwood             336            340               1.012 1.244
+18:           1    95          Lake City             176            165               0.938 0.708
+19:           1   100          Northgate             141            144               1.021 0.959
+20:           1   110         University             310            312               1.006 1.965
+21:           1   115        Wallingford             188            189               1.005 0.871
+22:           1   125          Wedgewood              72             74               1.028 0.242
+23:           1   130            Fremont             180            181               1.006 0.600
+24:           1   135              Leary              53             53               1.000 0.364
+25:           1   140          Ballard E             116            116               1.000 0.438
+26:           1   145          Ballard W             243            246               1.012 1.169
+27:           1   150          Greenlake             159            161               1.013 0.807
+28:           1   155            Phinney              50             50               1.000 0.140
+29:           1   225           Junction             162            163               1.006 0.629
+30:           1   230       Alki / Faunt              96             96               1.000 0.339
+31:           1   235            Admiral              71             71               1.000 0.248
+32:           1   415        Shoreline E              65              0               0.000 0.000
+33:           1   420        Shoreline W              66              0               0.000 0.000
+34:           2   160        Seward Park               7              7               1.000 0.025
+35:           2   165             Skyway              28              1               0.036 0.000
+36:           2   170     Rainier Valley             255            257               1.008 0.782
+37:           2   175        Beacon Hill             119            120               1.008 0.350
+38:           2   185         Georgetown              29             29               1.000 0.049
+39:           2   195       White Center              41              1               0.024 0.006
+40:           2   200      Highland Park              53             25               0.472 0.085
+41:           2   205           Westwood              79             79               1.000 0.295
+42:           2   215         High Point              24             24               1.000 0.004
+43:           2   220           Delridge              19             19               1.000 0.125
+44:           2   240         Des Moines              86              0               0.000 0.000
+45:           2   245             Burien             181              0               0.000 0.000
+46:           2   250     Boulevard Park              82              0               0.000 0.000
+47:           2   255             SeaTac              48              0               0.000 0.000
+48:           2   270        Federal Way             125              0               0.000 0.000
+49:           2   285           Auburn S              79              0               0.000 0.000
+50:           2   290           Auburn N              87              0               0.000 0.000
+51:           2   295             Algona              19              0               0.000 0.000
+52:           2   300      Enum / B Dmnd              30              0               0.000 0.000
+53:           2   305        Kent Valley              95              0               0.000 0.000
+54:           2   310    Cov / Maple Val              16              0               0.000 0.000
+55:           2   315             Renton              85              0               0.000 0.000
+56:           2   320 Benson / East Hill              95              0               0.000 0.000
+57:           2   325            Tukwila              39              0               0.000 0.000
+58:           2   330   Renton Highlands              76              0               0.000 0.000
+59:           2   440          Carnation               7              0               0.000 0.000
+60:           2   460             Duvall               6              0               0.000 0.000
+61:           2   465         Snoqualmie              32              0               0.000 0.000
+62:           2   475             Vashon              13              0               0.000 0.000
+63:           3   340      Mercer Island              25              0               0.000 0.000
+64:           3   350           Issaquah              72              0               0.000 0.000
+65:           3   355          Kennydale               9              0               0.000 0.000
+66:           3   360         Bellevue W              98              0               0.000 0.000
+67:           3   365         Bellevue E             110              0               0.000 0.000
+68:           3   370           Kirkland             102              0               0.000 0.000
+69:           3   380         Totem Lake              41              0               0.000 0.000
+70:           3   385            Bothell              66              0               0.000 0.000
+71:           3   400            Kenmore              36              0               0.000 0.000
+72:           3   425        Woodinville              26              0               0.000 0.000
+73:           3   430            Redmond             143              0               0.000 0.000
+    spec_region  nbhd          nbhd_name report_projects agreed_parcels parcels_per_project  av_B
+          <int> <int>             <char>           <int>          <int>               <num> <num>
+
+region totals:
+   spec_region nbhds report_projects agreed_parcels   av_B report_total footer_ok
+         <int> <int>           <int>          <int>  <num>        <int>    <lgcl>
+1:           1    33            4652           4557 32.470         4652      TRUE
+2:           2    29            1855            562  1.721         1855      TRUE
+3:           3    11             728              0  0.000          728      TRUE
+
+total: 7,235 report projects vs 5,119 agreed parcels (0.71 parcels/project)
+
+==============================================================================
+(d) 2-4 unit properties (the apartment specialty excludes these)
+==============================================================================
+by ResBldg NbrLivingUnits in [2,4] (the pipeline's is_small_mf):
+     bucket parcels small_mf_2_4   pct small_mf_av_B
+     <char>   <int>        <int> <num>         <num>
+1:     both    5119            0     0             0
+2: KCA-only     802            0     0             0
+
+unit-count distribution among the 2-4 unit rows:
+Empty data.table (0 rows and 3 cols): bucket,max_living_units,N
+
+cross-check on PresentUse 3, 4, 5:
+     bucket parcels small_mf_pu
+     <char>   <int>       <int>
+1:     both    5119          50
+2: KCA-only     802          10
+
+Read-only check complete — nothing written.
