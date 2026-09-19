@@ -1,101 +1,1595 @@
-=== inputs ===
-> old <- load_ty(BEFORE_PATH, "BEFORE")
-BEFORE panel_tbl_2006_2031_forecasted_baseline_com.rds: 31,374 parcels | TY2026 AV $86.999B | AV missing 0
-> new <- load_ty(AFTER_PATH,  "AFTER")
-AFTER  panel_tbl_2006_2031_forecasted_baseline_com.rds: 31,374 parcels | TY2026 AV $86.999B | AV missing 0
-> 
-> m <- merge(old[, .(pid, av_old = av)], new[, .(pid, av_new = av)],
-+            by = "pid", all = TRUE)
-> m[, bucket := fcase(
-+   is.na(av_new) & !pid %chin% new$pid, "dropped",
-+   !pid %chin% old$pid,                 "added",
-+   default = NA_character_)]
-> m[pid %chin% old$pid & pid %chin% new$pid,
-+   bucket := fifelse(
-+     fifelse(is.na(av_old), -1, av_old) == fifelse(is.na(av_new), -1, av_new),
-+     "same", "changed")]
-> 
-> cat("\n=== decomposition ===\n")
-
-=== decomposition ===
-> summ <- m[, .(parcels = .N,
-+               av_before_B = round(B(av_old), 3),
-+               av_after_B  = round(B(av_new),  3),
-+               delta_B     = round(B(av_new) - B(av_old), 3)),
-+           by = bucket][order(factor(bucket,
-+                                     levels = c("dropped","added","changed","same")))]
-> print(summ)
-   bucket parcels av_before_B av_after_B delta_B
-   <char>   <int>       <num>      <num>   <num>
-1:   same   31374      86.999     86.999       0
-> 
-> tot_old <- B(old$av); tot_new <- B(new$av)
-> cat(sprintf("\nTY%d AV: before $%.3fB -> after $%.3fB | net %+.3fB (%+.2f%%)\n",
-+             TAX_YR, tot_old, tot_new, tot_new - tot_old,
-+             100 * (tot_new / tot_old - 1)))
-
-TY2026 AV: before $86.999B -> after $86.999B | net +0.000B (+0.00%)
-> cat(sprintf("parcels: before %s -> after %s | net %+d\n",
-+             format(nrow(old), big.mark = ","), format(nrow(new), big.mark = ","),
-+             nrow(new) - nrow(old)))
-parcels: before 31,374 -> after 31,374 | net +0
-> 
-> # The buckets must add back to the net change, or the decomposition is wrong.
-> chk <- sum(summ$delta_B)
-> cat(sprintf("\nreconciliation: buckets sum to %+.3fB vs net %+.3fB -> %s\n",
-+             chk, tot_new - tot_old,
-+             if (abs(chk - (tot_new - tot_old)) < 1e-6) "OK" else "MISMATCH"))
-
-reconciliation: buckets sum to +0.000B vs net +0.000B -> OK
-> 
-> cat("\n=== dropped: expected to be the out-of-city parcels (step 3) ===\n")
-
-=== dropped: expected to be the out-of-city parcels (step 3) ===
-> drop <- m[bucket == "dropped"]
-> cat(sprintf("%s parcels | $%.3fB | of which zero/NA AV: %s\n",
-+             format(nrow(drop), big.mark = ","), B(drop$av_old),
-+             format(sum(is.na(drop$av_old) | drop$av_old == 0), big.mark = ",")))
-0 parcels | $0.000B | of which zero/NA AV: 0
-> 
-> cat("\n=== added: expected to be Seattle PropType C newcomers (step 2) ===\n")
-
-=== added: expected to be Seattle PropType C newcomers (step 2) ===
-> add <- m[bucket == "added"]
-> cat(sprintf("%s parcels | $%.3fB\n", format(nrow(add), big.mark = ","), B(add$av_new)))
-0 parcels | $0.000B
-> for (col in c("has_comm_bldg", "spec_area", "com_subgroup")) {
-+   if (col %in% names(new)) {
-+     a <- merge(add[, .(pid)], new, by = "pid")
-+     t <- a[, .(parcels = .N, av_B = round(B(av), 3)), by = col][order(-parcels)]
-+     cat("\n by ", col, ":\n", sep = ""); print(head(t, 15))
++   if (run_condo) {
++     message("\n  [Condo models]")
++     if (model_replicate) {
++       message("  Training condo LightGBM models (land + impr) ...")
++       source_global(here::here("scripts", "ml", "03_model_condo_land.R"))
++       source_global(here::here("scripts", "ml", "03_model_condo_impr.R"))
++       message("  \u2705 Condo models trained and saved.")
++       # Expose aliases used by 06_forecast_av_2026_2031_sequential_condo.R
++       if (exists("lgb_condo_land_delta_cv", envir = .GlobalEnv))
++         assign("lgb_condo_delta_cv", get("lgb_condo_land_delta_cv", envir = .GlobalEnv), envir = .GlobalEnv)
++       if (exists("lgb_condo_land_level_cv", envir = .GlobalEnv))
++         assign("lgb_condo_level_cv", get("lgb_condo_land_level_cv", envir = .GlobalEnv), envir = .GlobalEnv)
++ 
++       drop_if_exists(
++         "model_data_condo_land_delta",
++         "model_data_condo_land_level",
++         "model_data_condo_impr_delta",
++         "model_data_condo_impr_level"
++       )
++ 
++     } else {
++       message("  Loading cached condo models ...")
++       # Land
++       load_model("lgb_condo_land_delta_cv", "lgb_condo_land_delta_cv")
++       load_model("dv_condo_land_delta", "dv_condo_land_delta")
++       load_model("lgb_condo_land_level_cv",
++                  "lgb_condo_land_level_cv",
++                  required = FALSE)
++       load_model("dv_condo_land_level",
++                  "dv_condo_land_level",
++                  required = FALSE)
++       # Improvement
++       load_model("lgb_condo_impr_delta_cv", "lgb_condo_impr_delta_cv")
++       load_model("dv_condo_impr_delta", "dv_condo_impr_delta")
++       load_model("lgb_condo_impr_level_cv",
++                  "lgb_condo_impr_level_cv",
++                  required = FALSE)
++       load_model("dv_condo_impr_level",
++                  "dv_condo_impr_level",
++                  required = FALSE)
++     }
++ 
++     expose_cv(
++       "lgb_condo_land_delta_cv",
++       "lgb_condo_land_delta_model",
++       "lgb_condo_land_delta_features"
++     )
++     expose_cv(
++       "lgb_condo_land_level_cv",
++       "lgb_condo_land_level_model",
++       "lgb_condo_land_level_features"
++     )
++     expose_cv(
++       "lgb_condo_impr_delta_cv",
++       "lgb_condo_impr_delta_model",
++       "lgb_condo_impr_delta_features"
++     )
++     expose_cv(
++       "lgb_condo_impr_level_cv",
++       "lgb_condo_impr_level_model",
++       "lgb_condo_impr_level_features"
++     )
++ 
++     load_train_frame("model_data_condo_land_delta",
++                      "model_data_condo_land_delta.rds")
++     load_train_frame("model_data_condo_land_level",
++                      "model_data_condo_land_level.rds")
++     load_train_frame("model_data_condo_impr_delta",
++                      "model_data_condo_impr_delta.rds")
++     load_train_frame("model_data_condo_impr_level",
++                      "model_data_condo_impr_level.rds")
++ 
++     # Short-name aliases for 06_forecast_av_2026_2031_sequential_condo.R
++     if (exists("lgb_condo_land_delta_cv", envir = .GlobalEnv))
++       assign("lgb_condo_delta_cv", get("lgb_condo_land_delta_cv", envir = .GlobalEnv), envir = .GlobalEnv)
++     if (exists("lgb_condo_land_level_cv", envir = .GlobalEnv))
++       assign("lgb_condo_level_cv", get("lgb_condo_land_level_cv", envir = .GlobalEnv), envir = .GlobalEnv)
 +   }
++ 
++   # panel_tbl (res backbone created by xx_combine_parcel*) no longer needed
++   drop_if_exists("panel_tbl")
++ 
++   if (!forecast_only) {
++ 
++   # ============================================================================
++   # STEP 4  —  Retrofit Historical AV
++   # ============================================================================
++ 
++   # --------------------------------------------------------------------------
++   # 4a. Residential  (full residual-correction retrofit via 04_retrofitting_values.R)
++   # --------------------------------------------------------------------------
++   if (run_res) {
++     message("\n--- Step 4a: Retrofit historical AV (residential) ---")
++     retro_cache_res <- file.path(cache_dir, "panel_tbl_retro_res.rds")
++ 
++     if (retrofit_replicate || !file.exists(retro_cache_res)) {
++       assign("panel_tbl", panel_tbl_res, envir = .GlobalEnv)
++       # Drop panel_tbl_res immediately — retrofit only needs panel_tbl.
++       # Keeping both alive simultaneously adds ~2.5 GB at peak.
++       drop_if_exists("panel_tbl_res")
++       source_global(here::here("scripts", "ml", "04_retrofitting_values.R"))
++       if (exists("panel_tbl_retro", envir = .GlobalEnv)) {
++         assign("panel_tbl_retro_res", panel_tbl_retro, envir = .GlobalEnv)
++         saveRDS(panel_tbl_retro_res, retro_cache_res)
++         message("  \U1f4be cached: panel_tbl_retro_res")
++       }
++     } else {
++       message("  retrofit_replicate=FALSE and cache exists — loading.")
++       assign("panel_tbl_retro_res",
++              readRDS(retro_cache_res),
++              envir = .GlobalEnv)
++       message("  \u2705 loaded: panel_tbl_retro_res")
++     }
++ 
++     # panel_tbl_res and the intermediate panel_tbl_retro are now superseded
++     # by panel_tbl_retro_res.
++     drop_if_exists("panel_tbl_res", "panel_tbl_retro", "panel_tbl")
++   }
++ 
++   # --------------------------------------------------------------------------
++   # 4b. Commercial subgroups  (forward/backward na.locf fill, per subgroup)
++   # --------------------------------------------------------------------------
++   if (run_com) {
++     for (key in COM_SUBGROUP_KEYS) {
++       sg_label <- COM_SUBGROUPS[[key]]$label
++       message("\n--- Step 4b: Retrofit historical AV (", sg_label, " / ", key, ") ---")
++       retro_cache_sg <- file.path(cache_dir, paste0("panel_tbl_retro_", key, ".rds"))
++ 
++       # Reload subgroup panel from cache (was dropped after Step 2)
++       sg_panel_name <- paste0("panel_tbl_", key)
++       if (!exists(sg_panel_name, envir = .GlobalEnv)) {
++         sg_path <- file.path(cache_dir, paste0(sg_panel_name, ".rds"))
++         if (file.exists(sg_path)) {
++           assign(sg_panel_name, readRDS(sg_path), envir = .GlobalEnv)
++           message("  \u2705 loaded: ", sg_panel_name)
++         } else {
++           message("  \u26a0\ufe0f  ", sg_panel_name, " cache not found — skipping retrofit")
++           next
++         }
++       }
++ 
++       if (retrofit_replicate || !file.exists(retro_cache_sg)) {
++         panel_retro_sg <- data.table::copy(get(sg_panel_name, envir = .GlobalEnv))
++         data.table::setDT(panel_retro_sg)
++         data.table::setkeyv(panel_retro_sg, c("parcel_id", "tax_yr"))
++ 
++         # Re-join AV if all-NA (dash-format mismatch in panel build)
++         if ("log_appr_land_val" %in% names(panel_retro_sg) &&
++             all(is.na(panel_retro_sg$log_appr_land_val))) {
++           message("  log_appr_land_val all-NA in ", key, " retro panel — re-joining AV ...")
++           av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
++           if (!exists("av_history_cln", envir = .GlobalEnv) && file.exists(av_cache_path))
++             assign("av_history_cln", readRDS(av_cache_path), envir = .GlobalEnv)
++           if (exists("av_history_cln", envir = .GlobalEnv)) {
++             av_fix <- data.table::as.data.table(av_history_cln)
++             # av_history_cln is no-dash; the subgroup panels are dash-format.
++             # Stripping the dashes without restoring them made this join match
++             # ZERO rows, so the retro panel stayed all-NA on disk even though
++             # the warning above said the re-join "completed".  Step 3's copy of
++             # the same repair (build_subgroup_model_data) does restore the
++             # dashes, which is why models trained fine while the cached retro
++             # panel -> extend panel -> forecast panel carried no observed AV.
++             av_fix[, parcel_id := gsub("-", "", parcel_id)]
++             if (any(grepl("-", utils::head(panel_retro_sg$parcel_id, 10))))
++               av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
++                                            substr(parcel_id, 7, 10))]
++             av_fix <- av_fix[parcel_id %in% unique(panel_retro_sg$parcel_id),
++                              .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
++             panel_retro_sg[av_fix, on = .(parcel_id, tax_yr),
++                             `:=`(appr_land_val = i.appr_land_val,
++                                  appr_imps_val = i.appr_imps_val)]
++             panel_retro_sg[appr_land_val > 0, log_appr_land_val := log(appr_land_val)]
++             panel_retro_sg[appr_imps_val > 0, log_appr_imps_val := log(appr_imps_val)]
++             panel_retro_sg[, total_assessed :=
++               fifelse(is.na(appr_land_val), 0, appr_land_val) +
++               fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
++             panel_retro_sg[total_assessed > 0, log_total_assessed := log(total_assessed)]
++             rm(av_fix)
++             message("    AV re-join complete for ", key, " retro panel.")
++           }
++           drop_if_exists("av_history_cln")
++         }
++ 
++         for (col in c("log_appr_land_val",
++                       "log_appr_imps_val",
++                       "log_total_assessed")) {
++           if (col %in% names(panel_retro_sg))
++             panel_retro_sg[, (col) := zoo::na.locf(zoo::na.locf(get(col), na.rm = FALSE),
++                                                     fromLast = TRUE,
++                                                     na.rm = FALSE), by = parcel_id]
++         }
++ 
++         retro_name <- paste0("panel_tbl_retro_", key)
++         assign(retro_name, panel_retro_sg, envir = .GlobalEnv)
++         saveRDS(panel_retro_sg, retro_cache_sg)
++         message("  \U1f4be cached: ", retro_name)
++         rm(panel_retro_sg)
++ 
++       } else {
++         retro_name <- paste0("panel_tbl_retro_", key)
++         message("  retrofit_replicate=FALSE and cache exists — loading.")
++         assign(retro_name, readRDS(retro_cache_sg), envir = .GlobalEnv)
++         message("  \u2705 loaded: ", retro_name)
++       }
++ 
++       drop_if_exists(sg_panel_name)
++     }
++ 
++     # Also handle "Other" commercial parcels with legacy retrofit
++     message("\n--- Step 4b: Retrofit historical AV (com_other) ---")
++     retro_cache_com_other <- file.path(cache_dir, "panel_tbl_retro_com_other.rds")
++     if (!exists("panel_tbl_com_other", envir = .GlobalEnv)) {
++       co_path <- file.path(cache_dir, "panel_tbl_com_other.rds")
++       if (file.exists(co_path))
++         assign("panel_tbl_com_other", readRDS(co_path), envir = .GlobalEnv)
++     }
++     if (exists("panel_tbl_com_other", envir = .GlobalEnv)) {
++       if (retrofit_replicate || !file.exists(retro_cache_com_other)) {
++         panel_retro_other <- data.table::copy(get("panel_tbl_com_other", envir = .GlobalEnv))
++         data.table::setDT(panel_retro_other)
++         data.table::setkeyv(panel_retro_other, c("parcel_id", "tax_yr"))
++ 
++         # com_other never had the AV re-join the six subgroups get, so its
++         # retro panel carried no observed AV at all and the residual bucket
++         # forecast to $0.  Same repair, same dash handling.
++         if (!"log_appr_land_val" %in% names(panel_retro_other) ||
++             all(is.na(panel_retro_other$log_appr_land_val))) {
++           message("  log_appr_land_val all-NA in com_other retro panel ",
++                   "\u2014 re-joining AV ...")
++           av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
++           if (!exists("av_history_cln", envir = .GlobalEnv) &&
++               file.exists(av_cache_path))
++             assign("av_history_cln", readRDS(av_cache_path), envir = .GlobalEnv)
++           if (exists("av_history_cln", envir = .GlobalEnv)) {
++             av_fix <- data.table::as.data.table(av_history_cln)
++             av_fix[, parcel_id := gsub("-", "", parcel_id)]
++             if (any(grepl("-", utils::head(panel_retro_other$parcel_id, 10))))
++               av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
++                                            substr(parcel_id, 7, 10))]
++             av_fix <- av_fix[parcel_id %in% unique(panel_retro_other$parcel_id),
++                              .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
++             panel_retro_other[av_fix, on = .(parcel_id, tax_yr),
++                               `:=`(appr_land_val = i.appr_land_val,
++                                    appr_imps_val = i.appr_imps_val)]
++             panel_retro_other[appr_land_val > 0,
++                               log_appr_land_val := log(appr_land_val)]
++             panel_retro_other[appr_imps_val > 0,
++                               log_appr_imps_val := log(appr_imps_val)]
++             panel_retro_other[, total_assessed :=
++               fifelse(is.na(appr_land_val), 0, appr_land_val) +
++               fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
++             panel_retro_other[total_assessed > 0,
++                               log_total_assessed := log(total_assessed)]
++             rm(av_fix)
++             message("    AV re-join complete for com_other: land non-NA = ",
++                     scales::comma(sum(!is.na(panel_retro_other$appr_land_val))),
++                     " | impr non-NA = ",
++                     scales::comma(sum(!is.na(panel_retro_other$appr_imps_val))))
++           }
++           drop_if_exists("av_history_cln")
++         }
++ 
++         for (col in c("log_appr_land_val", "log_appr_imps_val", "log_total_assessed")) {
++           if (col %in% names(panel_retro_other))
++             panel_retro_other[, (col) := zoo::na.locf(zoo::na.locf(get(col), na.rm = FALSE),
++                                                        fromLast = TRUE,
++                                                        na.rm = FALSE), by = parcel_id]
++         }
++         assign("panel_tbl_retro_com_other", panel_retro_other, envir = .GlobalEnv)
++         saveRDS(panel_retro_other, retro_cache_com_other)
++         message("  \U1f4be cached: panel_tbl_retro_com_other")
++         rm(panel_retro_other)
++       } else {
++         assign("panel_tbl_retro_com_other", readRDS(retro_cache_com_other), envir = .GlobalEnv)
++         message("  \u2705 loaded: panel_tbl_retro_com_other")
++       }
++       drop_if_exists("panel_tbl_com_other")
++     }
++   }
++ 
++   # --------------------------------------------------------------------------
++   # 4c. Condo  (forward/backward na.locf fill)
++   # --------------------------------------------------------------------------
++   if (run_condo) {
++     message("\n--- Step 4c: Retrofit historical AV (condo) ---")
++     retro_cache_condo <- file.path(cache_dir, "panel_tbl_retro_condo.rds")
++     # Reload panel_tbl_condo from cache (was dropped after Step 2 to save memory)
++     if (!exists("panel_tbl_condo", envir = .GlobalEnv))
++       cache_load("panel_tbl_condo")
++ 
++     if (retrofit_replicate || !file.exists(retro_cache_condo)) {
++       panel_retro_condo <- copy(panel_tbl_condo)
++       setDT(panel_retro_condo)
++       setkeyv(panel_retro_condo, c("parcel_id", "tax_yr"))
++ 
++       # Re-join AV if all-NA (dash-format mismatch in panel build)
++       if ("log_appr_land_val" %in% names(panel_retro_condo) &&
++           all(is.na(panel_retro_condo$log_appr_land_val))) {
++         message("  log_appr_land_val all-NA in condo retro panel — re-joining AV ...")
++         av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
++         if (!exists("av_history_cln", envir = .GlobalEnv) && file.exists(av_cache_path))
++           assign("av_history_cln", readRDS(av_cache_path), envir = .GlobalEnv)
++         if (exists("av_history_cln", envir = .GlobalEnv)) {
++           av_fix <- data.table::as.data.table(av_history_cln)
++           # Same dash-format restoration as Step 4b — see the note there.
++           av_fix[, parcel_id := gsub("-", "", parcel_id)]
++           if (any(grepl("-", utils::head(panel_retro_condo$parcel_id, 10))))
++             av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
++                                          substr(parcel_id, 7, 10))]
++           av_fix <- av_fix[parcel_id %in% unique(panel_retro_condo$parcel_id),
++                            .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
++           panel_retro_condo[av_fix, on = .(parcel_id, tax_yr),
++                             `:=`(appr_land_val = i.appr_land_val,
++                                  appr_imps_val = i.appr_imps_val)]
++           panel_retro_condo[appr_land_val > 0, log_appr_land_val := log(appr_land_val)]
++           panel_retro_condo[appr_imps_val > 0, log_appr_imps_val := log(appr_imps_val)]
++           panel_retro_condo[, total_assessed :=
++             fifelse(is.na(appr_land_val), 0, appr_land_val) +
++             fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
++           panel_retro_condo[total_assessed > 0, log_total_assessed := log(total_assessed)]
++           rm(av_fix)
++           message("    AV re-join complete for condo retro panel.")
++         }
++         # av_history_cln is on disk — drop from memory now it is consumed
++         drop_if_exists("av_history_cln")
++       }
++ 
++       for (col in c("log_appr_land_val",
++                     "log_appr_imps_val",
++                     "log_total_assessed")) {
++         if (col %in% names(panel_retro_condo))
++           panel_retro_condo[, (col) := zoo::na.locf(zoo::na.locf(get(col), na.rm = FALSE),
++                                                     fromLast = TRUE,
++                                                     na.rm = FALSE), by = parcel_id]
++       }
++ 
++       assign("panel_tbl_retro_condo", panel_retro_condo, envir = .GlobalEnv)
++       saveRDS(panel_retro_condo, retro_cache_condo)
++       message("  \U1f4be cached: panel_tbl_retro_condo")
++       rm(panel_retro_condo)
++ 
++     } else {
++       assign("panel_tbl_retro_condo",
++              readRDS(retro_cache_condo),
++              envir = .GlobalEnv)
++       message("  \u2705 loaded: panel_tbl_retro_condo")
++     }
++ 
++     drop_if_exists("panel_tbl_condo")
++   }
++ 
++   # Drop all retro panels from memory — already cached to disk.
++   # They are reloaded just before their respective extend scripts.
++   for (key in COM_SUBGROUP_KEYS)
++     drop_if_exists(paste0("panel_tbl_retro_", key))
++   drop_if_exists("panel_tbl_retro_com_other",
++                  "panel_tbl_retro_condo")
++   gc(verbose = FALSE)
++ 
++   # ============================================================================
++   # STEP 5a  —  Holdout Diagnostics
++   # ============================================================================
++   message("\n--- Step 5a: Holdout diagnostics ---")
++   eval_script <- here::here("scripts", "ml", "05_eval_holdout_2025.R")
++ 
++   if (!file.exists(eval_script)) {
++     message("  05_eval_holdout_2025.R not found — skipping.")
++   } else if (!diagnostics_replicate) {
++     # Cache-first: load pre-computed metrics without running the eval script
++     out_dir_eval <- file.path(output_dir, "eval_2025")
++     metrics_land_path <- file.path(out_dir_eval,
++       paste0("metrics_land_2025_", kca_date_data_extracted, ".csv"))
++     if (file.exists(metrics_land_path)) {
++       message("  diagnostics_replicate=FALSE — loading cached eval metrics ...")
++       # Build list of possible metric files: res + condo + all subgroups
++       metrics_files <- c(
++         file.path(out_dir_eval, paste0("metrics_land_2025_",       kca_date_data_extracted, ".csv")),
++         file.path(out_dir_eval, paste0("metrics_impr_2025_",       kca_date_data_extracted, ".csv")),
++         file.path(out_dir_eval, paste0("metrics_condo_land_2025_", kca_date_data_extracted, ".csv")),
++         file.path(out_dir_eval, paste0("metrics_condo_impr_2025_", kca_date_data_extracted, ".csv"))
++       )
++       # Add subgroup metric files
++       for (key in COM_SUBGROUP_KEYS) {
++         metrics_files <- c(metrics_files,
++           file.path(out_dir_eval, paste0("metrics_", key, "_land_2025_", kca_date_data_extracted, ".csv")),
++           file.path(out_dir_eval, paste0("metrics_", key, "_impr_2025_", kca_date_data_extracted, ".csv"))
++         )
++       }
++       # Legacy com-wide metrics (backward compat)
++       metrics_files <- c(metrics_files,
++         file.path(out_dir_eval, paste0("metrics_com_land_2025_",   kca_date_data_extracted, ".csv")),
++         file.path(out_dir_eval, paste0("metrics_com_impr_2025_",   kca_date_data_extracted, ".csv"))
++       )
++ 
++       metrics_all <- dplyr::bind_rows(
++         lapply(metrics_files[sapply(metrics_files, file.exists)],
++                function(p) readr::read_csv(p, show_col_types = FALSE))
++       )
++       assign("metrics_all", metrics_all, envir = .GlobalEnv)
++       message("  === 2025 Holdout Eval — All Tracks (cached) ===")
++       print(metrics_all %>%
++               dplyr::select(Track, Target, Model, RMSE_log, MAE_log, MAPE, WAPE) %>%
++               dplyr::arrange(Track, Target))
++     } else {
++       message("  No cached eval metrics found — run with diagnostics_replicate=TRUE to generate.")
++     }
++   } else if (run_res) {
++     assign("panel_tbl", panel_tbl_retro_res, envir = .GlobalEnv)
++     source_global(eval_script)
++   }
++ 
++   } # end !forecast_only (Steps 4 + 5a)
++ 
++   # Eval (Step 5a) can leave multi-GB objects behind: the panel_tbl alias of
++   # the retro panel, the condo retro panel, and training frames.  None are
++   # needed by Steps 5b/6 — drop them before the extend/forecast peak.
++   drop_if_exists(
++     "panel_tbl", "panel_tbl_retro_condo",
++     "model_data_land_delta_model", "model_data_land_model",
++     "model_data_impr_delta_model", "model_data_impr_level_model",
++     "model_data_comm_land_delta",  "model_data_comm_impr_delta",
++     "model_data_condo_land_delta", "model_data_condo_land_level",
++     "model_data_condo_impr_delta", "model_data_condo_impr_level"
++   )
++   gc(verbose = FALSE)
++ 
++   # ============================================================================
++   # STEP 5b  —  Extend Panel 2026-2031  (or load cached extended panels)
++   # ============================================================================
++   # When forecast_only=TRUE: skip extend scripts, load cached extended panels.
++   # When forecast_only=FALSE: run extend scripts (respecting extend_replicate).
++   # ============================================================================
++   message(paste0("\n--- Step 5b: Extend panel ", forecast_start, "-", forecast_end, " (scenario = ", scenario, ") ---"))
++ 
++   if (forecast_only) {
++     # --------------------------------------------------------------------------
++     # forecast_only = TRUE: load cached extended panels directly
++     # --------------------------------------------------------------------------
++     message("  forecast_only=TRUE — loading cached extended panels ...")
++ 
++     load_ext <- function(track_label, obj_name, cache_name) {
++       if (exists(obj_name, envir = .GlobalEnv)) {
++         message("  \u2705 already in memory: ", obj_name)
++         return(invisible(NULL))
++       }
++       p <- file.path(cache_dir, cache_name)
++       if (!file.exists(p))
++         stop("forecast_only=TRUE but extended panel cache not found: ", p,
++              "\nRun with extend_replicate=TRUE once to build it.")
++       assign(obj_name, readRDS(p), envir = .GlobalEnv)
++       message("  \u2705 loaded extended panel (", track_label, "): ", cache_name)
++     }
++ 
++     if (run_res) {
++       load_ext("res",
++                paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_res"),
++                paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_res.rds"))
++       # 06_forecast_..._sequential.R reads the legacy fixed name
++       assign(paste0("panel_tbl_2006_2031_inputs_", scenario, "_res"),
++              get(paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                         "_inputs_", scenario, "_res"), envir = .GlobalEnv),
++              envir = .GlobalEnv)
++     }
++ 
++     if (run_com) {
++       for (key in COM_SUBGROUP_KEYS) {
++         load_ext(key,
++                  paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_", key),
++                  paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_", key, ".rds"))
++       }
++       # Also load com_other extended panel if it exists
++       co_ext_name <- paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_com_other")
++       co_ext_path <- file.path(cache_dir, paste0(co_ext_name, ".rds"))
++       if (file.exists(co_ext_path))
++         load_ext("com_other", co_ext_name, paste0(co_ext_name, ".rds"))
++     }
++ 
++     if (run_condo)
++       load_ext("condo",
++                paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_condo"),
++                paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_condo.rds"))
++ 
++   } else {
++     # --------------------------------------------------------------------------
++     # forecast_only = FALSE: run extend scripts (normal path)
++     # --------------------------------------------------------------------------
++ 
++     # Residential extend
++     if (run_res) {
++       ext_cache_res <- file.path(cache_dir,
++                                  paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_res.rds"))
++       if (extend_replicate || !file.exists(ext_cache_res)) {
++         assign("panel_tbl_retro", panel_tbl_retro_res, envir = .GlobalEnv)
++         source_global(here::here("scripts", "ml", "05_extend_panel_2026_2031.R"))
++         # The extend script publishes under a legacy fixed name
++         # (panel_tbl_2006_2031_inputs_<scenario>); accept either that or the
++         # horizon-parameterized name, then expose the _res alias that
++         # 06_forecast_..._sequential.R reads from GlobalEnv (avoiding a
++         # redundant multi-GB disk re-read inside the forecast script).
++         ext_obj        <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                  "_inputs_", scenario)
++         ext_obj_legacy <- paste0("panel_tbl_2006_2031_inputs_", scenario)
++         src_obj <- if (exists(ext_obj, envir = .GlobalEnv)) ext_obj
++                    else if (exists(ext_obj_legacy, envir = .GlobalEnv)) ext_obj_legacy
++                    else NULL
++         if (!is.null(src_obj)) {
++           panel_ext_res <- get(src_obj, envir = .GlobalEnv)
++           saveRDS(panel_ext_res, ext_cache_res)
++           assign(paste0(ext_obj_legacy, "_res"), panel_ext_res, envir = .GlobalEnv)
++           assign(paste0(ext_obj, "_res"),        panel_ext_res, envir = .GlobalEnv)
++           message("  \U1f4be cached: ", basename(ext_cache_res))
++           rm(panel_ext_res)
++           drop_if_exists(src_obj)
++         }
++       } else {
++         message("  Res extend cache exists — skipping.")
++         message("  \u2705 using: ", basename(ext_cache_res))
++       }
++       drop_if_exists("panel_tbl_retro_res", "panel_tbl_retro")
++     }
++ 
++     # Commercial subgroup extends
++     if (run_com) {
++       for (key in COM_SUBGROUP_KEYS) {
++         sg_label <- COM_SUBGROUPS[[key]]$label
++         ext_cache_sg <- file.path(cache_dir,
++                                   paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                          "_inputs_", scenario, "_", key, ".rds"))
++         if (extend_replicate || !file.exists(ext_cache_sg)) {
++           # Reload retro panel from cache
++           retro_name <- paste0("panel_tbl_retro_", key)
++           if (!exists(retro_name, envir = .GlobalEnv)) {
++             retro_path <- file.path(cache_dir, paste0(retro_name, ".rds"))
++             if (file.exists(retro_path)) {
++               assign(retro_name, readRDS(retro_path), envir = .GlobalEnv)
++             } else {
++               message("  \u26a0\ufe0f  ", retro_name, " cache not found — skipping extend for ", key)
++               next
++             }
++           }
++           assign("panel_tbl_retro", get(retro_name, envir = .GlobalEnv), envir = .GlobalEnv)
++ 
++           # Use the commercial extend script (applies CoStar signals)
++           source_global(here::here("scripts", "ml", "05_extend_panel_2026_2031_comm.R"))
++           ext_obj_sg <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                "_inputs_", scenario, "_", key)
++           # The extend script creates the generic com object; rename to subgroup-specific
++           ext_obj_generic <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                     "_inputs_", scenario, "_com")
++           if (exists(ext_obj_generic, envir = .GlobalEnv)) {
++             assign(ext_obj_sg, get(ext_obj_generic, envir = .GlobalEnv), envir = .GlobalEnv)
++             saveRDS(get(ext_obj_sg, envir = .GlobalEnv), ext_cache_sg)
++             message("  \U1f4be cached: ", basename(ext_cache_sg))
++             drop_if_exists(ext_obj_generic)
++           } else if (exists(ext_obj_sg, envir = .GlobalEnv)) {
++             saveRDS(get(ext_obj_sg, envir = .GlobalEnv), ext_cache_sg)
++             message("  \U1f4be cached: ", basename(ext_cache_sg))
++           }
++           drop_if_exists(retro_name, "panel_tbl_retro")
++         } else {
++           message("  ", sg_label, " extend cache exists — skipping.")
++         }
++ 
++         # Free memory between subgroups
++         gc(verbose = FALSE)
++       }
++ 
++       # Also extend com_other with legacy commercial approach
++       ext_cache_co <- file.path(cache_dir,
++                                 paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                        "_inputs_", scenario, "_com_other.rds"))
++       if (extend_replicate || !file.exists(ext_cache_co)) {
++         if (!exists("panel_tbl_retro_com_other", envir = .GlobalEnv)) {
++           co_retro_path <- file.path(cache_dir, "panel_tbl_retro_com_other.rds")
++           if (file.exists(co_retro_path))
++             assign("panel_tbl_retro_com_other", readRDS(co_retro_path), envir = .GlobalEnv)
++         }
++         if (exists("panel_tbl_retro_com_other", envir = .GlobalEnv)) {
++           assign("panel_tbl_retro", get("panel_tbl_retro_com_other", envir = .GlobalEnv), envir = .GlobalEnv)
++           source_global(here::here("scripts", "ml", "05_extend_panel_2026_2031_comm.R"))
++           ext_obj_generic <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                     "_inputs_", scenario, "_com")
++           ext_obj_co <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                "_inputs_", scenario, "_com_other")
++           if (exists(ext_obj_generic, envir = .GlobalEnv)) {
++             assign(ext_obj_co, get(ext_obj_generic, envir = .GlobalEnv), envir = .GlobalEnv)
++             saveRDS(get(ext_obj_co, envir = .GlobalEnv), ext_cache_co)
++             message("  \U1f4be cached: ", basename(ext_cache_co))
++             drop_if_exists(ext_obj_generic)
++           }
++           drop_if_exists("panel_tbl_retro_com_other", "panel_tbl_retro")
++         }
++       }
++     }
++ 
++     # Free subgroup extended panels before condo extend
++     if (run_com && run_condo) {
++       for (key in c(COM_SUBGROUP_KEYS, "com_other"))
++         drop_if_exists(paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                               "_inputs_", scenario, "_", key))
++       gc(verbose = FALSE)
++     }
++ 
++     # Condo extend
++     if (run_condo) {
++       ext_cache_condo <- file.path(cache_dir,
++                                    paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_condo.rds"))
++       if (extend_replicate || !file.exists(ext_cache_condo)) {
++         # Reload retro_condo from cache (was dropped after Step 4 to save memory)
++         if (!exists("panel_tbl_retro_condo", envir = .GlobalEnv))
++           assign("panel_tbl_retro_condo", readRDS(file.path(cache_dir, "panel_tbl_retro_condo.rds")), envir = .GlobalEnv)
++         assign("panel_tbl_retro", panel_tbl_retro_condo, envir = .GlobalEnv)
++         source_global(here::here("scripts", "ml", "05_extend_panel_2026_2031_condo.R"))
++         ext_obj_condo <- paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_condo")
++         if (exists(ext_obj_condo, envir = .GlobalEnv)) {
++           saveRDS(get(ext_obj_condo, envir = .GlobalEnv), ext_cache_condo)
++           message("  \U1f4be cached: ", basename(ext_cache_condo))
++         }
++       } else {
++         message("  Condo extend cache exists — skipping.")
++       }
++       drop_if_exists("panel_tbl_retro_condo", "panel_tbl_retro")
++     }
++ 
++   } # end forecast_only / normal extend branch
++ 
++   gc(verbose = FALSE)
++ 
++   # ============================================================================
++   # STEP 6  —  Sequential Forecast 2026-2031
++   # ============================================================================
++   message(paste0("\n--- Step 6: Sequential forecast ", forecast_start, "-", forecast_end, " ---"))
++ 
++   if (run_res) {
++     message("  [Residential forecast]")
++     source_global(here::here("scripts", "ml", "06_forecast_av_2026_2031_sequential.R"))
++   }
++ 
++   if (run_com) {
++     # --- Forecast each commercial subgroup with its own models ----------------
++     for (key in COM_SUBGROUP_KEYS) {
++       sg_label <- COM_SUBGROUPS[[key]]$label
++       message("\n  [", sg_label, " forecast (", key, ")]")
++ 
++       # Reload subgroup extended panel if needed
++       ext_obj_name <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                              "_inputs_", scenario, "_", key)
++       if (!exists(ext_obj_name, envir = .GlobalEnv)) {
++         ext_path <- file.path(cache_dir, paste0(ext_obj_name, ".rds"))
++         if (file.exists(ext_path)) {
++           assign(ext_obj_name, readRDS(ext_path), envir = .GlobalEnv)
++           message("  \u2705 reloaded: ", ext_obj_name)
++         } else {
++           message("  \u26a0\ufe0f  ", ext_obj_name, " not found — skipping forecast for ", key)
++           next
++         }
++       }
++ 
++       # Ensure per-subgroup CoStar features are present (extend caches built
++       # before the cs_* integration lack them; the join is idempotent, and
++       # CoStar's own forecast quarters cover the full horizon natively).
++       assign(ext_obj_name,
++              join_costar_subgroup_features(
++                get(ext_obj_name, envir = .GlobalEnv), key),
++              envir = .GlobalEnv)
++ 
++       # Coalesce the .x/.y econ twins into the base names the models read.
++       # Without this the econ block is all-NA from forecast_start onward.
++       assign(ext_obj_name,
++              repair_suffixed(get(ext_obj_name, envir = .GlobalEnv)),
++              envir = .GlobalEnv)
++ 
++       # Set up aliases expected by the commercial forecast script
++       # The forecast script reads panel_tbl_<start>_<end>_inputs_<scenario>_com
++       # and uses lgb_com_land_delta_model, etc.
++       ext_obj_com_generic <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                     "_inputs_", scenario, "_com")
++       assign(ext_obj_com_generic, get(ext_obj_name, envir = .GlobalEnv), envir = .GlobalEnv)
++       # 06_forecast_..._comm.R reads the LEGACY fixed name from GlobalEnv
++       # (falling back to a disk cache that holds whichever subgroup extended
++       # last) — publish the legacy alias so each subgroup forecasts on ITS
++       # OWN panel.
++       ext_obj_com_legacy <- paste0("panel_tbl_2006_2031_inputs_", scenario, "_com")
++       assign(ext_obj_com_legacy, get(ext_obj_name, envir = .GlobalEnv), envir = .GlobalEnv)
++ 
++       # Map subgroup model objects to the generic com model names
++       for (tt in c("land_delta", "land_level", "impr_delta", "impr_level")) {
++         sg_cv   <- paste0("lgb_", key, "_", tt, "_cv")
++         sg_mod  <- paste0("lgb_", key, "_", tt, "_model")
++         sg_feat <- paste0("lgb_", key, "_", tt, "_features")
++         gen_cv  <- paste0("lgb_com_", tt, "_cv")
++         gen_mod <- paste0("lgb_com_", tt, "_model")
++         gen_feat <- paste0("lgb_com_", tt, "_features")
++ 
++         if (exists(sg_cv, envir = .GlobalEnv))
++           assign(gen_cv, get(sg_cv, envir = .GlobalEnv), envir = .GlobalEnv)
++         if (exists(sg_mod, envir = .GlobalEnv))
++           assign(gen_mod, get(sg_mod, envir = .GlobalEnv), envir = .GlobalEnv)
++         if (exists(sg_feat, envir = .GlobalEnv))
++           assign(gen_feat, get(sg_feat, envir = .GlobalEnv), envir = .GlobalEnv)
++       }
++       # Legacy aliases used by 06_forecast_av_2026_2031_sequential_comm.R
++       if (exists("lgb_com_land_delta_cv", envir = .GlobalEnv))
++         assign("lgb_com_delta_cv", get("lgb_com_land_delta_cv", envir = .GlobalEnv), envir = .GlobalEnv)
++       if (exists("lgb_com_land_level_cv", envir = .GlobalEnv))
++         assign("lgb_com_level_cv", get("lgb_com_land_level_cv", envir = .GlobalEnv), envir = .GlobalEnv)
++ 
++       source_global(here::here(
++         "scripts", "ml",
++         "06_forecast_av_2026_2031_sequential_comm.R"
++       ))
++ 
++       # Rename the forecasted output from com → subgroup-specific
++       fcst_com_name <- "panel_tbl_forecasted_com"
++       fcst_sg_name  <- paste0("panel_tbl_forecasted_", key)
++       if (exists(fcst_com_name, envir = .GlobalEnv)) {
++         assign(fcst_sg_name, get(fcst_com_name, envir = .GlobalEnv), envir = .GlobalEnv)
++ 
++         # Also save scenario-specific cache with subgroup suffix
++         cache_fcst_name <- paste0("panel_tbl_2006_2031_forecasted_", scenario, "_", key, ".rds")
++         saveRDS(get(fcst_sg_name, envir = .GlobalEnv),
++                 file.path(cache_dir, cache_fcst_name))
++         message("  \U1f4be cached: ", cache_fcst_name)
++ 
++         drop_if_exists(fcst_com_name)
++       }
++ 
++       # Clean up generic aliases
++       drop_if_exists(ext_obj_com_generic, ext_obj_com_legacy, ext_obj_name)
++       for (tt in c("land_delta", "land_level", "impr_delta", "impr_level")) {
++         drop_if_exists(
++           paste0("lgb_com_", tt, "_cv"),
++           paste0("lgb_com_", tt, "_model"),
++           paste0("lgb_com_", tt, "_features")
++         )
++       }
++       drop_if_exists("lgb_com_delta_cv", "lgb_com_level_cv")
++ 
++       gc(verbose = FALSE)
++     }
++ 
++     # Forecast com_other with legacy commercial approach
++     message("\n  [Commercial Other forecast]")
++     ext_co_name <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                           "_inputs_", scenario, "_com_other")
++     if (!exists(ext_co_name, envir = .GlobalEnv)) {
++       ext_co_path <- file.path(cache_dir, paste0(ext_co_name, ".rds"))
++       if (file.exists(ext_co_path))
++         assign(ext_co_name, readRDS(ext_co_path), envir = .GlobalEnv)
++     }
++     if (exists(ext_co_name, envir = .GlobalEnv)) {
++       # Use the last-available model set or a simple naive approach for Other
++       ext_obj_com_generic <- paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                                     "_inputs_", scenario, "_com")
++       assign(ext_obj_com_generic, get(ext_co_name, envir = .GlobalEnv), envir = .GlobalEnv)
++       ext_obj_com_legacy <- paste0("panel_tbl_2006_2031_inputs_", scenario, "_com")
++       assign(ext_obj_com_legacy, get(ext_co_name, envir = .GlobalEnv), envir = .GlobalEnv)
++ 
++       # For com_other, attempt to use any available commercial models
++       # (these may not exist if we only trained subgroup models)
++       has_com_models <- any(sapply(
++         paste0("lgb_com_land_delta_cv"),
++         function(n) exists(n, envir = .GlobalEnv)
++       ))
++       if (has_com_models) {
++         source_global(here::here("scripts", "ml",
++                                  "06_forecast_av_2026_2031_sequential_comm.R"))
++       } else {
++         message("  \u2139\ufe0f  No aggregate commercial models available — com_other uses residual growth")
++         # Residual growth (replaces the pre-2026-08-02 flat carry-forward).
++         # Precedence per parcel-year:
++         #   1. KCA geographic area-report actual, anchor year, non-specialty
++         #   2. com_other_growth_method rate (com_weighted / blend / proxy)
++         #   3. flat, as fallback
++         # Land and improvement are grown separately and compound off the prior
++         # FORECAST year.  pred_appr_land_val / pred_appr_imps_val are populated
++         # as well as pred_total_assessed - av_reconcile_certified.R reads all
++         # three, and com_other previously supplied only the total.
++         #
++         # Ordering: this reads the six subgroup forecast panels to build its
++         # weights, so it must stay AFTER the subgroup forecast loop above.
++         source_global(here::here("scripts", "ml", "xx_com_other_growth.R"))
++         co_dt <- run_com_other_forecast(
++           co_dt          = get(ext_co_name, envir = .GlobalEnv),
++           scenario       = scenario,
++           cache_dir      = cache_dir,
++           forecast_start = forecast_start,
++           forecast_end   = forecast_end
++         )
++         message("  com_other residual: ",
++                 scales::comma(co_dt[tax_yr >= forecast_start &
++                                       !is.na(pred_total_assessed),
++                                     data.table::uniqueN(parcel_id)]),
++                 " parcels forecast into the horizon")
++         assign("panel_tbl_forecasted_com", co_dt, envir = .GlobalEnv)
++         rm(co_dt)
++       }
++ 
++       fcst_co_name <- "panel_tbl_forecasted_com_other"
++       if (exists("panel_tbl_forecasted_com", envir = .GlobalEnv)) {
++         assign(fcst_co_name, get("panel_tbl_forecasted_com", envir = .GlobalEnv), envir = .GlobalEnv)
++         cache_fcst_name <- paste0("panel_tbl_2006_2031_forecasted_", scenario, "_com_other.rds")
++         saveRDS(get(fcst_co_name, envir = .GlobalEnv),
++                 file.path(cache_dir, cache_fcst_name))
++         message("  \U1f4be cached: ", cache_fcst_name)
++         drop_if_exists("panel_tbl_forecasted_com")
++       }
++       drop_if_exists(ext_obj_com_generic, ext_obj_com_legacy, ext_co_name)
++     }
++ 
++     # --- Combine all commercial subgroups into panel_tbl_forecasted_com --------
++     # This creates a combined commercial forecasted panel so that downstream
++     # scripts (av_fcst_summary, av_detailed_groups) can still read the "com" track.
++     message("\n  Combining commercial subgroup forecasts into panel_tbl_forecasted_com ...")
++     com_parts <- list()
++     for (key in c(COM_SUBGROUP_KEYS, "com_other")) {
++       fcst_nm <- paste0("panel_tbl_forecasted_", key)
++       if (exists(fcst_nm, envir = .GlobalEnv)) {
++         part <- data.table::copy(get(fcst_nm, envir = .GlobalEnv))
++         part[, com_subgroup := key]
++         com_parts[[key]] <- part
++       } else {
++         # Try loading from disk
++         fcst_path <- file.path(cache_dir,
++                                paste0("panel_tbl_2006_2031_forecasted_", scenario, "_", key, ".rds"))
++         if (file.exists(fcst_path)) {
++           part <- data.table::as.data.table(readRDS(fcst_path))
++           part[, com_subgroup := key]
++           com_parts[[key]] <- part
++         }
++       }
++     }
++     if (length(com_parts) > 0) {
++       combined_com <- data.table::rbindlist(com_parts, use.names = TRUE, fill = TRUE)
++       assign("panel_tbl_forecasted_com", combined_com, envir = .GlobalEnv)
++       saveRDS(combined_com,
++               file.path(cache_dir,
++                         paste0("panel_tbl_2006_2031_forecasted_", scenario, "_com.rds")))
++       message("  \U1f4be cached combined commercial forecast: ",
++               scales::comma(nrow(combined_com)), " rows, ",
++               length(com_parts), " subgroups")
++       rm(com_parts, combined_com)
++     }
++   }
++ 
++   if (run_condo) {
++     message("  [Condo forecast]")
++     source_global(here::here(
++       "scripts",
++       "ml",
++       "06_forecast_av_2026_2031_sequential_condo.R"
++     ))
++   }
++ 
++   # Extended input panels consumed by forecast scripts above
++   # (legacy fixed names included — the extend/forecast scripts publish/read
++   #  panel_tbl_2006_2031_inputs_* regardless of the configured horizon)
++   drop_if_exists(
++     paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_res"),
++     paste0("panel_tbl_", forecast_start, "_", forecast_end, "_inputs_", scenario, "_condo"),
++     paste0("panel_tbl_2006_2031_inputs_", scenario),
++     paste0("panel_tbl_2006_2031_inputs_", scenario, "_res"),
++     paste0("panel_tbl_2006_2031_inputs_", scenario, "_condo")
++   )
++   for (key in c(COM_SUBGROUP_KEYS, "com_other"))
++     drop_if_exists(paste0("panel_tbl_", forecast_start, "_", forecast_end,
++                           "_inputs_", scenario, "_", key))
++ 
++   # ---- Footer -----------------------------------------------------------------
++   elapsed <- round(as.numeric(difftime(Sys.time(), start_time, units = "mins")), 2)
++   message("\n==============================================")
++   message("run_main_ml() finished — elapsed: ", elapsed, " min")
++   message("  prop_scope = ", prop_scope, " | scenario = ", scenario)
++   if (run_com)
++     message("  commercial subgroups: ",
++             paste(COM_SUBGROUP_KEYS, collapse = ", "), " + other")
++   message("==============================================")
++ 
++   invisible(
++     list(
++       panel_tbl_forecasted_res   = if (exists("panel_tbl_forecasted_res", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_res", envir = .GlobalEnv)
++       else
++         NULL,
++       panel_tbl_forecasted_com   = if (exists("panel_tbl_forecasted_com", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_com", envir = .GlobalEnv)
++       else
++         NULL,
++       panel_tbl_forecasted_condo = if (exists("panel_tbl_forecasted_condo", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_condo", envir = .GlobalEnv)
++       else
++         NULL,
++       # Individual subgroup forecasts
++       panel_tbl_forecasted_apt         = if (exists("panel_tbl_forecasted_apt", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_apt", envir = .GlobalEnv) else NULL,
++       panel_tbl_forecasted_office      = if (exists("panel_tbl_forecasted_office", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_office", envir = .GlobalEnv) else NULL,
++       panel_tbl_forecasted_industrial  = if (exists("panel_tbl_forecasted_industrial", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_industrial", envir = .GlobalEnv) else NULL,
++       panel_tbl_forecasted_retail      = if (exists("panel_tbl_forecasted_retail", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_retail", envir = .GlobalEnv) else NULL,
++       panel_tbl_forecasted_hospitality = if (exists("panel_tbl_forecasted_hospitality", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_hospitality", envir = .GlobalEnv) else NULL,
++       panel_tbl_forecasted_medical     = if (exists("panel_tbl_forecasted_medical", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_medical", envir = .GlobalEnv) else NULL,
++       panel_tbl_forecasted_com_other   = if (exists("panel_tbl_forecasted_com_other", envir = .GlobalEnv))
++         get("panel_tbl_forecasted_com_other", envir = .GlobalEnv) else NULL,
++       area_report_actuals        = if (exists("area_report_actuals", envir = .GlobalEnv))
++         get("area_report_actuals", envir = .GlobalEnv)
++       else
++         NULL,
++       metrics_all                = if (exists("metrics_all", envir = .GlobalEnv))
++         get("metrics_all", envir = .GlobalEnv)
++       else
++         NULL,
++       rmse_land                  = if (exists("rmse_comparison_land", envir = .GlobalEnv))
++         get("rmse_comparison_land", envir = .GlobalEnv)
++       else
++         NULL,
++       rmse_impr                  = if (exists("rmse_comparison_impr", envir = .GlobalEnv))
++         get("rmse_comparison_impr", envir = .GlobalEnv)
++       else
++         NULL
++     )
++   )
 + }
+> run_main_ml(forecast_only = FALSE,
++             panel_replicate = TRUE, 
++             replicate = TRUE, )
+==============================================
+run_main_ml() started at: 2026-09-18 21:44:43
+replicate=TRUE | panel_replicate=TRUE | model_replicate=FALSE | retrofit=FALSE | diagnostics=FALSE | extend=FALSE | forecast_only=FALSE
+scenario = baseline | prop_scope = all
+  commercial subgroups: apt, office, industrial, retail, hospitality, medical
+forecast = 2027-2031
+use_area_actuals = TRUE (reports year 2026)
+use_health_ratings = TRUE
+kca_date = 2026-07-28 | seed = 456
+import_raw_changes = FALSE
+==============================================
+Called from: (function (..., sep, group, negative_power, parse, set_units_mode, 
+    strict_tokenizer, auto_convert_names_to_symbols, simplify, 
+    allow_mixed, unitless_symbol, define_bel) 
+{
+    ret = list()
+    if (!missing(sep)) {
+        stopifnot(is.character(sep) && length(sep) == 2)
+        ret$sep = .setopt(sep)
+    }
+    if (!missing(group)) {
+        stopifnot(is.character(group) && length(group) == 2)
+        ret$group = .setopt(group)
+    }
+    if (!missing(negative_power)) {
+        stopifnot(is.logical(negative_power))
+        ret$negative_power = .setopt(negative_power)
+    }
+    if (!missing(parse)) {
+        stopifnot(is.logical(parse))
+        ret$parse = .setopt(parse)
+  ...
+Browse[1]> Q
+> run_main_ml(forecast_only = FALSE,
++             panel_replicate = TRUE, 
++             replicate = TRUE, 
++             extend_replicate = TRUE)
+==============================================
+run_main_ml() started at: 2026-09-18 21:45:04
+replicate=TRUE | panel_replicate=TRUE | model_replicate=FALSE | retrofit=FALSE | diagnostics=FALSE | extend=TRUE | forecast_only=FALSE
+scenario = baseline | prop_scope = all
+  commercial subgroups: apt, office, industrial, retail, hospitality, medical
+forecast = 2027-2031
+use_area_actuals = TRUE (reports year 2026)
+use_health_ratings = TRUE
+kca_date = 2026-07-28 | seed = 456
+import_raw_changes = FALSE
+==============================================
+00_init.R loaded. the cake is still a lie.
+  com_other_growth_method = com_weighted | reclassify_com_other = TRUE (max tier 3)
+  extra sources -> kca_permits: TRUE | construction_sales: TRUE | home_improvement: TRUE
 
- by spec_area:
-Empty data.table (0 rows and 3 cols): spec_area,parcels,av_B
+--- Step 0: Import actual AV growth from area reports ---
+  geo_actuals_scope = nonspecialty | specialty_actuals_policy = model
 
- by com_subgroup:
-Empty data.table (0 rows and 3 cols): com_subgroup,parcels,av_B
-> 
-> cat("\n=== changed: parcels in both whose TY2026 AV moved ===\n")
+--- area_report_import.R (assessment year 2026) ---
+  ✅ 001-002-003-004-.pdf [res]: 4 areas
+  ✅ 006-007-.pdf [res]: 2 areas
+  ✅ 008-044-046-.pdf [res]: 3 areas
+  ✅ 011-012-013-014-016-017-018-.pdf [res]: 17 areas
+  ✅ 015.pdf [specialty]: spec 15, -2.10% total; 1 rows
+  ✅ 019-042-043-082-.pdf [res]: 4 areas
+  ✅ 100.pdf [specialty]: spec 100, -5.75% total (land -6.05%, imps -5.65%); regions: R1 Central / North -8.36% [33 nbhds], R2 South -10.09% [29 nbhds], R3 East +2.14% [11 nbhds]; 4 rows
+  ✅ 250.pdf [specialty]: spec 250, +0.43% total; 1 rows
+  ✅ 413.pdf [specialty]: spec 413, +0.51% total; 1 rows
+  ✅ 520.PDF [specialty]: spec 520, +1.02% total; 1 rows
+  ✅ 700_01.pdf [condo]: Capitol Hill, nbhds 35,40,65,70,85, -5.7% total (land -3.1%, imps -7.0%), 8,015 units
+  ✅ 700_02.pdf [condo]: Downtown Seattle, nbhds 5,10,25,30, -3.7% total (land -44.3%, imps +5.1%), 9,090 units
+  ✅ 700_03.pdf [condo]: Queen Anne / Magnolia, nbhds 15,20,45,50,55,60,75,80, -2.8% total (land -5.3%, imps -1.3%), 6,787 units
+  ✅ 700_04.pdf [condo]: I-90 Corridor, nbhds 330,335,340,345,350,355,360,365,450,455,465,480, -5.2% total (land +1.3%, imps -6.4%), 20,175 units
+  ✅ 700_05.pdf [condo]: Northeast King County, nbhds 370,375,380,385,390,395,400,425,430,435,460,490, -4.7% total (land +5.5%, imps -7.6%), 19,980 units
+  ✅ 700_06.pdf [condo]: South King County, nbhds 240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320,325,470, -4.8% total (land +1.8%, imps -5.8%), 19,065 units
+  ✅ 700_07.pdf [condo]: South Seattle, nbhds 160,165,170,175,185,190,195,200,205,210,215,220,225,230,235,475, -6.5% total (land +0.1%, imps -8.9%), 6,234 units
+  ✅ 700_08.pdf [condo]: Northwest King County, nbhds 90,95,100,105,110,115,120,125,130,135,140,145,150,155,405,410,415,420, -2.4% total (land +3.6%, imps -5.2%), 13,811 units
+  ✅ 800.PDF [specialty]: spec 800, -12.29% total; 1 rows
+  ✅ central.pdf [com]: 8 areas
+  ✅ north.pdf [com]: 8 areas
+  ✅ south.pdf [com]: 7 areas
+  specialty rates parsed for areas: 15, 100, 250, 413, 520, 800
+  💾 cached: area_report_actuals_2026.rds
+  💾 csv: area_report_actuals_2026.csv
+  Actual 2025→2026 AV growth (population basis):
+    com   32 cells | min -31.0% | median +0.7% | max +7.5%
+    condo  8 cells | min -6.5% | median -4.8% | max -2.4%
+    res   30 cells | min -5.8% | median -1.4% | max +2.0%
+area_report_import.R complete.
+  area_report_actuals available: 47 geographic areas | 7 specialty areas
 
-=== changed: parcels in both whose TY2026 AV moved ===
-> chg <- m[bucket == "changed"][order(-abs(fifelse(is.na(av_new), 0, av_new) -
-+                                          fifelse(is.na(av_old), 0, av_old)))]
-> cat(sprintf("%s parcels | before $%.3fB -> after $%.3fB (%+.3fB)\n",
-+             format(nrow(chg), big.mark = ","), B(chg$av_old), B(chg$av_new),
-+             B(chg$av_new) - B(chg$av_old)))
-0 parcels | before $0.000B -> after $0.000B (+0.000B)
-> cat(sprintf("  gained AV (was NA/0): %s | lost AV (now NA/0): %s\n",
-+             format(chg[(is.na(av_old) | av_old == 0) & av_new > 0, .N], big.mark = ","),
-+             format(chg[av_old > 0 & (is.na(av_new) | av_new == 0), .N], big.mark = ",")))
-  gained AV (was NA/0): 0 | lost AV (now NA/0): 0
-> if (nrow(chg)) {
-+   cat("\n largest 10 moves:\n")
-+   print(head(chg[, .(pid, av_old_B = round(av_old/1e9, 4),
-+                      av_new_B = round(av_new/1e9, 4))], 10))
-+ }
-> 
-> cat("\nRead-only check complete — nothing written.\n")
+--- Step 1a: ETL + transforms (residential) ---
+01_import_res.R loaded — 189268 parcels | 533036 bldg rows
+  02_transfrm.R: applying data quality fixes to parcel_res_full (189268 rows) ...
+    bldg_grade column not found in parcel_res_full — skipping grade cap
+Processed 525118 groups out of 525118. 100% done. Time elapsed: 219s. ETA: 0s..
+    Primary-building grade correction applied. 7918 secondary building rows excluded from grade aggregation.
+    is_small_mf: 7505 parcels with 2-4 units (cross-track dedup applied later)
+    airport_noise: 523 non-zero parcels (kept as standalone feature)
+    nuisance_score rebuilt (traffic + power + other; airport_noise separate)
+    nuisance_score range: 0 - 4
+    Removing 3484 condo complex master records (prop_type=K, minor=0000)
+    Removing 113 parcels with non-modellable prop_type (M/N/U/X/T)
+    PropType split before residential filter: C=19413 | R=166258
+    residential track before: 185671 parcels | TY2026 AV $260.686B
+    residential track after:  166258 parcels | TY2026 AV $165.881B
+    removed (non-R PropType): 19413 parcels | TY2026 AV $94.805B
+    prop_type filter complete: 166258 parcels remain
+    is_non_sfr_hbu: 10211 parcels with non-residential HBU (code >= 6) — setting model_res=0
+    is_land_only: 5909 parcels (no building sqft AND no improvement AV)
+    train_res=1 (used for model training): 150635
+    forecast_res=1 (receive AV forecast):  166258
+    access: 165988 non-zero
+    street_surface: 1207 unpaved parcels
+    pcnt_unusable > 0: 374 parcels
+    hundred_yr_flood_plain: 0 parcels
+    New Parcel features present: 15 of 18 — access, water_system, sewer_system, street_surface, topography, pcnt_unusable, adjacent_golf_fairway, adjacent_greenbelt, lot_depth_factor, erosion_hazard, critical_drainage, hundred_yr_flood_plain, stream, wetland, species_of_concern
+  02_transfrm.R summary:
+    Total parcels:             166258
+    train_res=1 (train):       150635  (model training eligible)
+    forecast_res=1 (forecast): 166258  (all parcels receive AV forecast)
+    model_res=0 (flagged):     10211  (incomplete + exempt + non-SFR HBU — forecasted but not trained)
+    is_land_only:              5909  (land AV only; imps suppressed in retrofit/forecast)
+    Exceptional grade (=20):   0
+    Small MF (2-4 units):      7505  (cross-track dedup pending)
+    Daylight basement Y:       col not present
+    Non-SFR HBU (excl train):  10211
+    airport_noise non-zero:    484
+    New Parcel features added: 15 of 18
+02_transfrm.R loaded.
+  💾 cached: parcel_res_full (153.3 MB)
+  Skipping raw changes import (import_raw_changes = FALSE) ...
+  ✅ loaded: changes_long_tbl
+Rows: 27557132 Columns: 16                                                                                                                                                                                                                                      
+── Column specification ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Delimiter: ","
+chr  (7): Major, Minor, TaxValReason, TaxStatus, LevyCode, ChangeDocId, Reason
+dbl  (8): TaxYr, OmitYr, ApprLandVal, ApprImpsVal, ApprImpIncr, LandVal, ImpsVal, SplitCode
+dttm (1): ChangeDate
 
-Read-only check complete — nothing written.
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+xx_av_history.R loaded — av_history_cln: 5146032 rows | tax_yr 2001–2026
+  💾 cached: av_history_cln (685.8 MB)
+
+--- Step 1b: ETL + transforms (commercial) ---
+  Reading EXTR_CommBldg ...
+    comm_bldg rows: 41795 | unique parcels: 31374
+  Reading EXTR_CommBldgSection ...
+    comm_section rows: 65242 | unique parcels: 31340
+  Reading EXTR_CommBldgFeature ...
+    comm_feature rows: 3093 | unique parcels: 2470
+  Building parcel-level commercial summary ...
+    comm_parcel_full rows (from building records): 31374
+  Reading EXTR_Parcel for the commercial universe ...
+|--------------------------------------------------|
+|==================================================|
+    EXTR_Parcel: 628548 parcels | Seattle levy codes: 189268 | of those PropType C: 19413
+    dropped (building record outside Seattle PropType C): 16949
+    added (Seattle PropType C with no commercial building): 4988
+      of which KCA SpecArea 100 (apartments): 796
+      spec_area present on newcomers: 1091 | present_use present: 4988
+    comm_parcel_full rows (final universe): 19413 | with buildings: 14425 | land/no-building: 4988
+01_import_comm.R loaded.
+  Commercial parcels excluded from training (model_com=0): 0
+  nuisance_score rebuilt for commercial (traffic + power + other)
+  parcel_comm_full rows: 19413 | prop classes: 
+    prop_class_comm     N
+             <char> <int>
+1:           Retail  7484
+2: Other Commercial  5135
+3:           Office  2662
+4:       Industrial  2463
+5:     Land/Special   887
+6:    Institutional   771
+7:        Mixed Use    11
+02_transfrm_comm.R loaded.
+  💾 cached: parcel_comm_full (8.6 MB)
+
+--- Step 1c: ETL + transforms (condo) ---
+  Reading EXTR_CondoComplex ...
+    condo_complex_cln rows: 5744
+  Reading EXTR_CondoUnit ...
+    condo_unit_cln rows: 99779
+  Joining complex attributes onto unit parcels ...
+    Condo units flagged as also in CommBldg: 345 (0.3%)
+    condo_parcel_full rows: 99779 | unique majors (complexes): 3447
+01_import_condo.R loaded.
+  Excluding 1876 timeshare units (ComplexType=3) from model panel.
+  parcel_condo_full rows: 97903
+  Unique complexes (major): 3262
+  Condo segments:
+    condo_segment     N
+           <char> <int>
+1: Standard Condo 78173
+2:     MFTE Condo 15085
+3:          Co-op  2286
+4:    Other Condo  1394
+5:      Leasehold   952
+6:    Condo Hotel    13
+  Condo units flagged model_condo=1: 97903
+02_transfrm_condo.R loaded.
+  💾 cached: parcel_condo_full (36.5 MB)
+  💾 cached: condo_complex_cln (1.4 MB)
+
+--- Step 2: Panel assembly (scenario = baseline) ---
+Applying changes for: hbu_as_if_vacant_desc
+Applying changes for: unbuildable
+Applying changes for: sq_ft_lot
+Applying changes for: nuisance_score
+Applying changes for: mt_rainier
+Applying changes for: olympics
+Applying changes for: cascades
+Applying changes for: territorial
+Applying changes for: seattle_skyline
+Applying changes for: puget_sound
+Applying changes for: lake_washington
+Applying changes for: seismic_hazard
+Applying changes for: landslide_hazard
+Applying changes for: steep_slope_hazard
+Applying changes for: traffic_noise
+Applying changes for: airport_noise
+Applying changes for: power_lines
+Applying changes for: other_nuisances
+Applying changes for: contamination
+Applying changes for: historic_site
+xx_combine_parcel_history_changes.R loaded: panel ready for retrofitting.
+Running xx_permits_to_panel.R (robust) ...
+✅ permits added to panel_tbl. New permit cols: permits_last_1yr, permits_last_3yr, permits_last_5yr, val_last_3yr, val_last_5yr, sqft_last_3yr, units_last_3yr, any_newconst, years_since_newconst, log_val_last_3yr, log_sqft_last_3yr
+xx_permits_to_panel.R loaded
+Running xx_kca_permits_to_panel.R ...
+  ⚠️  EXTR_Permit.csv not found — kcap_* features skipped
+xx_kca_permits_to_panel.R loaded
+Running xx_home_improvement_to_panel.R ...
+  ⚠️  no home improvement extracts found — hi_* features skipped
+xx_home_improvement_to_panel.R loaded
+xx_nwmls_to_panel.R: scenario = baseline
+  Reading NWMLS from Excel: 2026-06_nwmls_housing_forecast_baseline.xlsx
+New names:                                                                                                                                                                                                                                                    
+• `` -> `...1`
+  Seattle SFH columns: sea_pmedesfh_fav, sea_sesfh_fav, sea_alesfh_fav
+  King County SFH columns: k_pmedesfh_fav, k_sesfh_fav, k_alesfh_fav
+💾 NWMLS forecast cached to: nwmls_fcst_2026_2031_baseline.rds
+xx_nwmls_to_panel.R loaded (scenario = baseline | KC SFH = TRUE)
+xx_econ_to_panel.R: scenario = baseline
+  Reading OERF sheet: Baseline ANN
+New names:                                                                                                                                                                                                                                                    
+• `` -> `...1`
+• `` -> `...2`
+New names:                                                                                                                                                                                                                                                    
+• `` -> `...1`
+• `` -> `...2`
+💾 econ forecast cached to: econ_fcst_2026_2031_baseline.rds
+💾 econ all-years cached to: econ_all_years_baseline.rds
+Running xx_construction_sales_to_panel.R (scenario = baseline) ...
+New names:                                                                                                                                                                                                                                                    
+• `` -> `...1`
+• `` -> `...2`
+• `` -> `...3`
+• `` -> `...4`
+• `` -> `...5`
+• `` -> `...6`
+• `` -> `...7`
+• `` -> `...8`
+• `` -> `...9`
+• `` -> `...10`
+  quarters: 208 (1980Q1 to 2031Q4) | scenario column = baseline
+  💾 cached con_sales_all_years_baseline.rds
+  ✅ con_sales features joined | forecast years covered: 5
+xx_construction_sales_to_panel.R loaded
+  Loaded av_history_cln from cache.
+  commercial AV history matched: 17171 of 19413 parcels (id format: dashed)
+  Excluding 345 condo units already in CommBldg (mixed-use).
+  Econ columns joined to commercial and condo panels: 12
+  panel_tbl_all rows:   7647183
+    res:   4488966
+    com:   524151
+    condo: 2634066
+  [assert] res parcels: 166258 | com parcels: 19413 | condo units: 97558
+  [assert] res/com parcel_id overlap: 0 — OK
+|--------------------------------------------------|
+|==================================================|
+  [assert] Seattle levy-code EXTR_Parcel population: 189268 parcels (PropType R 166258 | C 19413)
+  [assert] res 166258 / 166258 (missing 0) | com 19413 / 19413 (missing 0)
+  [assert] res + com reconcile to the Seattle population — OK
+xx_combine_res_comm_condo_panel.R loaded.
+  Reading CoStar from CSV: costar_q_2026q3_baseline.csv
+  CoStar raw: 173 rows  |  cols: yearq, US_VRNRO, KSP_VRNRO, SEA_VRNRO, US_AVNRO, KSP_AVNRO, SEA_AVNRO, US_ARNRO, KSP_ARNRO, SEA_ARNRO, US_VRRMF, KSP_VRRMF, SEA_VRRMF, US_AVRMF, KSP_AVRMF, SEA_AVRMF, US_ARRMF, KSP_ARRMF, SEA_ARRMF
+  Geography used for NRO vacancy rate:
+   vr_nro_geo     N
+       <char> <int>
+1:        KSP    40
+2:        SEA   133
+  Annual series: 44 years  (1990 – 2033)
+  Last 5 years with data:
+   tax_yr costar_vr_nro costar_vr_mf costar_ar_mf costar_geo n_quarters
+    <int>         <num>        <num>        <num>     <char>      <int>
+1:   2029     0.2191123   0.06837912     136.3022        SEA          4
+2:   2030     0.2164461   0.06896935     138.6196        SEA          4
+3:   2031     0.2147845   0.06816953     141.1866        SEA          4
+4:   2032     0.2134653   0.06710799     143.9127        SEA          4
+5:   2033     0.2128366   0.06640960     145.5824        SEA          1
+  costar_* columns attached (13):
+    costar_vr_nro, costar_vr_mf, costar_ar_mf, costar_geo, costar_vr_nro_lag1, costar_vr_nro_lag2, costar_vr_mf_lag1, costar_vr_mf_lag2, costar_ar_mf_lag1, costar_ar_mf_lag2, costar_vr_nro_delta, costar_vr_mf_delta, costar_ar_mf_delta
+  Years 2005-2025 with non-NA costar_vr_nro: 21
+  💾 CoStar annual cached: costar_fcst_1990_2033_baseline.rds
+xx_costar_to_panel.R loaded (scenario = baseline)
+
+--- xx_health_inspections_import.R ---
+  Downloading food inspection data from data.kingcounty.gov ...
+xx_health_inspections_import.R complete.
+
+--- xx_health_to_panel.R ---
+xx_health_to_panel.R complete (stubbed).
+xx_nwmls_condo_to_panel.R: scenario = baseline
+  Reading NWMLS from Excel: 2026-06_nwmls_housing_forecast_baseline.xlsx
+New names:                                                                                                                                                                                                                                                    
+• `` -> `...1`
+  Available columns: k_alesfh, k_alesfh_fav, k_alesfh_f50, k_alec, k_alec_fav, k_alec_f50, k_sesfh, k_sesfh_fav, k_sesfh_f50, k_sec, k_sec_fav, k_sec_f50, k_pmedesfh, k_pmedesfh_fav, k_pmedesfh_f90, k_pmedesfh_f91, k_pmedec, k_pmedec_fav, k_pmedec_f90, k_pmedec_f9a, k_pmedec_f91, sea_alesfh, sea_alesfh_fav, sea_alesfh_f50, sea_alec, sea_alec_fav, sea_alec_f50, sea_alec_f53, sea_sesfh, sea_sesfh_fav, sea_sesfh_f50, sea_sec, sea_sec_fav, sea_sec_f50, sea_sec_f51, sea_sec_f52, sea_pmedesfh, sea_pmedesfh_fav, sea_pmedesfh_f90, sea_pmedesfh_f91, sea_pmedec, sea_pmedec_fav, sea_pmedec_f90, sea_pmedec_f9a, sea_pmedec_f91, date
+  Seattle condo columns found: sea_pmedec_fav, sea_sec_fav, sea_alec_fav
+  King County condo columns detected: k_pmedec_fav, k_sec_fav, k_alec_fav
+💾 NWMLS condo forecast cached to: nwmls_condo_fcst_2026_2031_baseline.rds
+xx_nwmls_condo_to_panel.R loaded (scenario = baseline | SEA condo = TRUE | KC condo = TRUE)
+  💾 cached: panel_tbl_res (5849.5 MB)
+  💾 cached: panel_tbl_com (749.3 MB)
+  💾 cached: panel_tbl_condo (3673.9 MB)
+  💾 cached: panel_tbl_all (9994.6 MB)
+
+--- Step 2c: Splitting commercial panel into subgroups ---
+Running xx_com_classify.R ...
+  classifying 5,365 unassigned commercial parcels
+|--------------------------------------------------|
+|==================================================|
+  ℹ️  KCA permit extracts not found — permit text skipped
+  Tier 4 text sources: bldg, sect, apt, prop_name (106,052 strings)
+  ⚠️  230 vacant parcels matched a built-space tier — reverting to NA
+
+  --- com_other reclassification ---
+       class_tier com_subgroup_assigned parcels
+           <char>                <char>   <int>
+ 1: 2_section_use            industrial     373
+ 2: 2_section_use           hospitality     343
+ 3: 2_section_use                retail     330
+ 4: 2_section_use                office     128
+ 5: 2_section_use                   apt      99
+---                                            
+18:      5_zoning                   apt     391
+19:      5_zoning                office      46
+20:      5_zoning            industrial      29
+21:  parking_hold                  <NA>     799
+22:     unmatched                  <NA>    2100
+  assigned: 2,466 of 5,365 (46%)
+  vacant flagged: 1899 | parking flagged: 799
+xx_com_classify.R loaded.
+  Pass 3 reclassified 35,532 parcels out of com_other (max tier 3)
+  🧹 freed: panel_tbl_com_other_ids  (0.4 MB)
+  Subgroup split: apt=200394, office=42633, industrial=78192, retail=54351, hospitality=32265, medical=6993, other=109323
+  ✅ created: panel_tbl_apt (7,422 parcels, 200,394 rows)
+  ✅ created: panel_tbl_office (1,579 parcels, 42,633 rows)
+  ✅ created: panel_tbl_industrial (2,896 parcels, 78,192 rows)
+  ✅ created: panel_tbl_retail (2,013 parcels, 54,351 rows)
+  ✅ created: panel_tbl_hospitality (1,195 parcels, 32,265 rows)
+  ✅ created: panel_tbl_medical (259 parcels, 6,993 rows)
+  ✅ created: panel_tbl_com_other (4,049 parcels)
+  💾 cached: panel_tbl_apt (288.1 MB)
+  💾 cached: panel_tbl_office (61.4 MB)
+  💾 cached: panel_tbl_industrial (112.5 MB)
+  💾 cached: panel_tbl_retail (78.2 MB)
+  💾 cached: panel_tbl_hospitality (46.5 MB)
+  💾 cached: panel_tbl_medical (10.1 MB)
+  💾 cached: panel_tbl_com_other (157.3 MB)
+  🧹 freed: parcel_res_full, parcel_comm_full, parcel_condo_full, condo_complex_cln, av_history_cln, av_dt, panel_tbl, panel_tbl_all  (14056.5 MB)
+  🧹 freed: panel_tbl_com, panel_tbl_condo, panel_tbl_com_other  (4580.5 MB)
+  🧹 freed: panel_tbl_apt  (288.1 MB)
+  🧹 freed: panel_tbl_office  (61.4 MB)
+  🧹 freed: panel_tbl_industrial  (112.5 MB)
+  🧹 freed: panel_tbl_retail  (78.2 MB)
+  🧹 freed: panel_tbl_hospitality  (46.5 MB)
+  🧹 freed: panel_tbl_medical  (10.1 MB)
+
+--- Step 3: Models ---
+
+  [Residential models]
+  Loading cached residential models ...
+  ✅ loaded: lgb_land_delta_cv (lgb_land_delta_cv_20260730_141252.rds)
+  ✅ loaded: dv_land_delta (dv_land_delta_20260730_141252.rds)
+  ✅ loaded: lgb_impr_delta_cv (lgb_impr_delta_cv_20260730_142138.rds)
+  ✅ loaded: dv_impr_delta (dv_impr_delta_20260730_142138.rds)
+  ✅ loaded: lgb_impr_level_cv (lgb_impr_level_cv_20260730_142138.rds)
+  ✅ loaded: dv_impr_level (dv_impr_level_20260730_142138.rds)
+  ✅ loaded: lgb_land_level_cv (lgb_land_level_cv_20260730_141252.rds)
+  ✅ loaded: dv_land_level (dv_land_level_20260730_141252.rds)
+  ✅ loaded training frame: model_data_land_delta_model
+  ✅ loaded training frame: model_data_land_model
+  ✅ loaded training frame: model_data_impr_delta_model
+  ✅ loaded training frame: model_data_impr_level_model
+
+  [Commercial subgroup models]
+
+  --- Subgroup: Apartment (apt) ---
+  Loading cached Apartment models ...
+  ✅ loaded: lgb_apt_land_delta_cv (lgb_apt_land_delta_cv.rds)
+  ✅ loaded: dv_apt_land_delta (dv_apt_land_delta.rds)
+  ✅ loaded: lgb_apt_land_level_cv (lgb_apt_land_level_cv.rds)
+  ✅ loaded: dv_apt_land_level (dv_apt_land_level.rds)
+  ✅ loaded: lgb_apt_impr_delta_cv (lgb_apt_impr_delta_cv.rds)
+  ✅ loaded: dv_apt_impr_delta (dv_apt_impr_delta.rds)
+  ✅ loaded: lgb_apt_impr_level_cv (lgb_apt_impr_level_cv.rds)
+  ✅ loaded: dv_apt_impr_level (dv_apt_impr_level.rds)
+  ✅ loaded training frame: model_data_apt_land_delta
+  ✅ loaded training frame: model_data_apt_land_level
+  ✅ loaded training frame: model_data_apt_impr_delta
+  ✅ loaded training frame: model_data_apt_impr_level
+
+  --- Subgroup: Major Office (office) ---
+  Loading cached Major Office models ...
+  ✅ loaded: lgb_office_land_delta_cv (lgb_office_land_delta_cv.rds)
+  ✅ loaded: dv_office_land_delta (dv_office_land_delta.rds)
+  ✅ loaded: lgb_office_land_level_cv (lgb_office_land_level_cv.rds)
+  ✅ loaded: dv_office_land_level (dv_office_land_level.rds)
+  ✅ loaded: lgb_office_impr_delta_cv (lgb_office_impr_delta_cv.rds)
+  ✅ loaded: dv_office_impr_delta (dv_office_impr_delta.rds)
+  ✅ loaded: lgb_office_impr_level_cv (lgb_office_impr_level_cv.rds)
+  ✅ loaded: dv_office_impr_level (dv_office_impr_level.rds)
+  ✅ loaded training frame: model_data_office_land_delta
+  ✅ loaded training frame: model_data_office_land_level
+  ✅ loaded training frame: model_data_office_impr_delta
+  ✅ loaded training frame: model_data_office_impr_level
+
+  --- Subgroup: Industrial (industrial) ---
+  Loading cached Industrial models ...
+  ✅ loaded: lgb_industrial_land_delta_cv (lgb_industrial_land_delta_cv.rds)
+  ✅ loaded: dv_industrial_land_delta (dv_industrial_land_delta.rds)
+  ✅ loaded: lgb_industrial_land_level_cv (lgb_industrial_land_level_cv.rds)
+  ✅ loaded: dv_industrial_land_level (dv_industrial_land_level.rds)
+  ✅ loaded: lgb_industrial_impr_delta_cv (lgb_industrial_impr_delta_cv.rds)
+  ✅ loaded: dv_industrial_impr_delta (dv_industrial_impr_delta.rds)
+  ✅ loaded: lgb_industrial_impr_level_cv (lgb_industrial_impr_level_cv.rds)
+  ✅ loaded: dv_industrial_impr_level (dv_industrial_impr_level.rds)
+  ✅ loaded training frame: model_data_industrial_land_delta
+  ✅ loaded training frame: model_data_industrial_land_level
+  ✅ loaded training frame: model_data_industrial_impr_delta
+  ✅ loaded training frame: model_data_industrial_impr_level
+
+  --- Subgroup: Retail (retail) ---
+  Loading cached Retail models ...
+  ✅ loaded: lgb_retail_land_delta_cv (lgb_retail_land_delta_cv.rds)
+  ✅ loaded: dv_retail_land_delta (dv_retail_land_delta.rds)
+  ✅ loaded: lgb_retail_land_level_cv (lgb_retail_land_level_cv.rds)
+  ✅ loaded: dv_retail_land_level (dv_retail_land_level.rds)
+  ✅ loaded: lgb_retail_impr_delta_cv (lgb_retail_impr_delta_cv.rds)
+  ✅ loaded: dv_retail_impr_delta (dv_retail_impr_delta.rds)
+  ✅ loaded: lgb_retail_impr_level_cv (lgb_retail_impr_level_cv.rds)
+  ✅ loaded: dv_retail_impr_level (dv_retail_impr_level.rds)
+  ✅ loaded training frame: model_data_retail_land_delta
+  ✅ loaded training frame: model_data_retail_land_level
+  ✅ loaded training frame: model_data_retail_impr_delta
+  ✅ loaded training frame: model_data_retail_impr_level
+
+  --- Subgroup: Hospitality (hospitality) ---
+  Loading cached Hospitality models ...
+  ✅ loaded: lgb_hospitality_land_delta_cv (lgb_hospitality_land_delta_cv.rds)
+  ✅ loaded: dv_hospitality_land_delta (dv_hospitality_land_delta.rds)
+  ✅ loaded: lgb_hospitality_land_level_cv (lgb_hospitality_land_level_cv.rds)
+  ✅ loaded: dv_hospitality_land_level (dv_hospitality_land_level.rds)
+  ✅ loaded: lgb_hospitality_impr_delta_cv (lgb_hospitality_impr_delta_cv.rds)
+  ✅ loaded: dv_hospitality_impr_delta (dv_hospitality_impr_delta.rds)
+  ✅ loaded: lgb_hospitality_impr_level_cv (lgb_hospitality_impr_level_cv.rds)
+  ✅ loaded: dv_hospitality_impr_level (dv_hospitality_impr_level.rds)
+  ✅ loaded training frame: model_data_hospitality_land_delta
+  ✅ loaded training frame: model_data_hospitality_land_level
+  ✅ loaded training frame: model_data_hospitality_impr_delta
+  ✅ loaded training frame: model_data_hospitality_impr_level
+
+  --- Subgroup: Medical (medical) ---
+  Loading cached Medical models ...
+  ✅ loaded: lgb_medical_land_delta_cv (lgb_medical_land_delta_cv.rds)
+  ✅ loaded: dv_medical_land_delta (dv_medical_land_delta.rds)
+  ✅ loaded: lgb_medical_land_level_cv (lgb_medical_land_level_cv.rds)
+  ✅ loaded: dv_medical_land_level (dv_medical_land_level.rds)
+  ✅ loaded: lgb_medical_impr_delta_cv (lgb_medical_impr_delta_cv.rds)
+  ✅ loaded: dv_medical_impr_delta (dv_medical_impr_delta.rds)
+  ✅ loaded: lgb_medical_impr_level_cv (lgb_medical_impr_level_cv.rds)
+  ✅ loaded: dv_medical_impr_level (dv_medical_impr_level.rds)
+  ✅ loaded training frame: model_data_medical_land_delta
+  ✅ loaded training frame: model_data_medical_land_level
+  ✅ loaded training frame: model_data_medical_impr_delta
+  ✅ loaded training frame: model_data_medical_impr_level
+
+  [Condo models]
+  Loading cached condo models ...
+  ✅ loaded: lgb_condo_land_delta_cv (lgb_condo_land_delta_cv_20260730_122042.rds)
+  ✅ loaded: dv_condo_land_delta (dv_condo_land_delta_20260730_122042.rds)
+  ✅ loaded: lgb_condo_land_level_cv (lgb_condo_land_level_cv_20260730_122042.rds)
+  ✅ loaded: dv_condo_land_level (dv_condo_land_level_20260730_122042.rds)
+  ✅ loaded: lgb_condo_impr_delta_cv (lgb_condo_impr_delta_cv_20260730_122638.rds)
+  ✅ loaded: dv_condo_impr_delta (dv_condo_impr_delta_20260730_122638.rds)
+  ✅ loaded: lgb_condo_impr_level_cv (lgb_condo_impr_level_cv_20260730_122638.rds)
+  ✅ loaded: dv_condo_impr_level (dv_condo_impr_level_20260730_122638.rds)
+  ✅ loaded training frame: model_data_condo_land_delta
+  ✅ loaded training frame: model_data_condo_land_level
+  ✅ loaded training frame: model_data_condo_impr_delta
+  ✅ loaded training frame: model_data_condo_impr_level
+
+--- Step 4a: Retrofit historical AV (residential) ---
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_res
+  🧹 freed: panel_tbl_res  (5849.5 MB)
+
+--- Step 4b: Retrofit historical AV (Apartment / apt) ---
+  ✅ loaded: panel_tbl_apt
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_apt
+  🧹 freed: panel_tbl_apt  (288.1 MB)
+
+--- Step 4b: Retrofit historical AV (Major Office / office) ---
+  ✅ loaded: panel_tbl_office
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_office
+  🧹 freed: panel_tbl_office  (61.4 MB)
+
+--- Step 4b: Retrofit historical AV (Industrial / industrial) ---
+  ✅ loaded: panel_tbl_industrial
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_industrial
+  🧹 freed: panel_tbl_industrial  (112.5 MB)
+
+--- Step 4b: Retrofit historical AV (Retail / retail) ---
+  ✅ loaded: panel_tbl_retail
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_retail
+  🧹 freed: panel_tbl_retail  (78.2 MB)
+
+--- Step 4b: Retrofit historical AV (Hospitality / hospitality) ---
+  ✅ loaded: panel_tbl_hospitality
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_hospitality
+  🧹 freed: panel_tbl_hospitality  (46.5 MB)
+
+--- Step 4b: Retrofit historical AV (Medical / medical) ---
+  ✅ loaded: panel_tbl_medical
+  retrofit_replicate=FALSE and cache exists — loading.
+  ✅ loaded: panel_tbl_retro_medical
+  🧹 freed: panel_tbl_medical  (10.1 MB)
+
+--- Step 4b: Retrofit historical AV (com_other) ---
+  ✅ loaded: panel_tbl_retro_com_other
+  🧹 freed: panel_tbl_com_other  (157.3 MB)
+
+--- Step 4c: Retrofit historical AV (condo) ---
+  ✅ loaded: panel_tbl_condo
+  ✅ loaded: panel_tbl_retro_condo
+  🧹 freed: panel_tbl_condo  (3673.9 MB)
+  🧹 freed: panel_tbl_retro_apt  (338.3 MB)
+  🧹 freed: panel_tbl_retro_office  (122.8 MB)
+  🧹 freed: panel_tbl_retro_industrial  (242.6 MB)
+  🧹 freed: panel_tbl_retro_retail  (174.9 MB)
+  🧹 freed: panel_tbl_retro_hospitality  (79.2 MB)
+  🧹 freed: panel_tbl_retro_medical  (25.4 MB)
+  🧹 freed: panel_tbl_retro_com_other, panel_tbl_retro_condo  (2887.8 MB)
+
+--- Step 5a: Holdout diagnostics ---
+  diagnostics_replicate=FALSE — loading cached eval metrics ...
+  === 2025 Holdout Eval — All Tracks (cached) ===
+# A tibble: 2 × 7
+  Track       Target Model    RMSE_log MAE_log   MAPE   WAPE
+  <chr>       <chr>  <chr>       <dbl>   <dbl>  <dbl>  <dbl>
+1 Residential impr   LGB_impr    0.604  0.215  0.297  0.204 
+2 Residential land   LGB_land    0.131  0.0579 0.0603 0.0575
+  🧹 freed: model_data_land_delta_model, model_data_land_model, model_data_impr_delta_model, model_data_impr_level_model, model_data_condo_land_delta, model_data_condo_land_level, model_data_condo_impr_delta, model_data_condo_impr_level  (5063.3 MB)
+
+--- Step 5b: Extend panel 2027-2031 (scenario = baseline) ---
+05_extend_panel_2026_2031.R: scenario = baseline
+History through tax_yr = 2026
+Extending to: 2027, 2028, 2029, 2030, 2031
+Processed 185671 groups out of 185671. 100% done. Time elapsed: 13s. ETA: 0s.
+   n_rows n_unique_parcels n_missing_econ n_missing_nwmls
+    <int>            <int>          <int>           <int>
+1: 928355           185671              0               0
+💾 saved: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/cache/panel_tbl_2006_2031_inputs_baseline.rds
+💾 saved: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/parcel_year_panel_tbl_2006_2031_inputs_baseline.parquet
+05_extend_panel_2026_2031.R complete (scenario = baseline).
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_res.rds
+  🧹 freed: panel_tbl_2006_2031_inputs_baseline  (3547.1 MB)
+  🧹 freed: panel_tbl_retro_res, panel_tbl_retro  (5874.5 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 10149
+  Extended commercial panel rows: 324768 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_apt.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (461.5 MB)
+  🧹 freed: panel_tbl_retro_apt, panel_tbl_retro  (676.6 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 3683
+  Extended commercial panel rows: 117856 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_office.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (167.5 MB)
+  🧹 freed: panel_tbl_retro_office, panel_tbl_retro  (245.6 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 7278
+  Extended commercial panel rows: 232896 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_industrial.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (331 MB)
+  🧹 freed: panel_tbl_retro_industrial, panel_tbl_retro  (485.3 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 5245
+  Extended commercial panel rows: 167840 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_retail.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (238.6 MB)
+  🧹 freed: panel_tbl_retro_retail, panel_tbl_retro  (349.7 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 2375
+  Extended commercial panel rows: 76000 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_hospitality.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (108.1 MB)
+  🧹 freed: panel_tbl_retro_hospitality, panel_tbl_retro  (158.4 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 762
+  Extended commercial panel rows: 24384 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_medical.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (34.7 MB)
+  🧹 freed: panel_tbl_retro_medical, panel_tbl_retro  (50.9 MB)
+  Extending commercial panel from 2027 to 2031 ...
+  Loaded CoStar annual cache: costar_fcst_1990_2033_baseline.rds | fcst rows: 5
+  Parcels to extend: 1882
+  Extended commercial panel rows: 60224 | years: 2000-2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_com.rds
+05_extend_panel_2026_2031_comm.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_com_other.rds
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com  (85.6 MB)
+  🧹 freed: panel_tbl_retro_com_other, panel_tbl_retro  (125.6 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_apt  (461.5 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_office  (167.5 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_industrial  (331 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_retail  (238.6 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_hospitality  (108.1 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_medical  (34.7 MB)
+  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com_other  (85.6 MB)
+  Extending condo panel 2027 – 2031 | units: 80053
+  NWMLS condo forecast rows: 5
+  Extended condo panel rows: 2561696 | years: 2000 – 2031
+  💾 cached: panel_tbl_2006_2031_inputs_baseline_condo.rds
+05_extend_panel_2026_2031_condo.R loaded (scenario = baseline)
+  💾 cached: panel_tbl_2027_2031_inputs_baseline_condo.rds
+  🧹 freed: panel_tbl_retro_condo, panel_tbl_retro  (5650.1 MB)
+
+--- Step 6: Sequential forecast 2027-2031 ---
+  [Residential forecast]
+Error in drop_single_level_dv_vars(obj) : object 'dvlvls' not found
+In addition: 
+There were 50 or more warnings (use warnings() to see the first 50)
+Called from: drop_single_level_dv_vars(obj)
