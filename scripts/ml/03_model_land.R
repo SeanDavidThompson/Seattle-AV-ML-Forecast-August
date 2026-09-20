@@ -8,11 +8,21 @@ message("Running 03_model_land.R (LightGBM delta + level rolling CV) ...")
 # Read from the full residential panel (includes spatial distance columns
 # added by xx_combine_res_comm_condo_panel.R).
 # Fall back chain: panel_tbl_res → panel_tbl_res_backbone → panel_tbl
-.panel_path <- if (file.exists(here("data","cache","panel_tbl_res.rds")))
-  here("data","cache","panel_tbl_res.rds") else if (
-  file.exists(here("data","cache","panel_tbl_res_backbone.rds")))
-  here("data","cache","panel_tbl_res_backbone.rds") else
-  here("data","cache","panel_tbl.rds")
+#
+# cache_dir / model_dir come from run_main_ml() via .GlobalEnv.  The literals
+# here("data","cache") / here("data","model") used to be hardcoded in this
+# script, which ignored a caller-supplied model_dir: any run with a
+# non-default model_dir still wrote stamped land models into data/model/,
+# where latest_model_file() (newest mtime) would serve them to the next
+# production run.  The defaults reproduce the old literals for standalone use.
+cache_dir <- get0("cache_dir", envir = .GlobalEnv, ifnotfound = here("data", "cache"))
+model_dir <- get0("model_dir", envir = .GlobalEnv, ifnotfound = here("data", "model"))
+
+.panel_path <- if (file.exists(file.path(cache_dir, "panel_tbl_res.rds")))
+  file.path(cache_dir, "panel_tbl_res.rds") else if (
+  file.exists(file.path(cache_dir, "panel_tbl_res_backbone.rds")))
+  file.path(cache_dir, "panel_tbl_res_backbone.rds") else
+  file.path(cache_dir, "panel_tbl.rds")
 message("  Reading panel from: ", basename(.panel_path))
 panel_tbl <- read_rds(.panel_path)
 rm(.panel_path)
@@ -267,28 +277,28 @@ message("LightGBM LAND LEVEL rolling CV RMSE (log level): ",
 # ------------------------------------------------------------------
 # 5.5) SAVE artifacts for downstream forecast scripts
 # ------------------------------------------------------------------
-dir.create(here("data","model"), recursive = TRUE, showWarnings = FALSE)
-dir.create(here("data","cache"), recursive = TRUE, showWarnings = FALSE)
+dir.create(model_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
 stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")  # avoids overwriting
 
 # Save delta artifacts (required for 07_forecast... land delta branch)
 saveRDS(lgb_land_delta_cv,
-        here("data","model", paste0("lgb_land_delta_cv_", stamp, ".rds")))
+        file.path(model_dir, paste0("lgb_land_delta_cv_", stamp, ".rds")))
 saveRDS(dv_land_delta,
-        here("data","model", paste0("dv_land_delta_", stamp, ".rds")))
+        file.path(model_dir, paste0("dv_land_delta_", stamp, ".rds")))
 
 # Save level artifacts too (optional but good hygiene)
 saveRDS(lgb_land_level_cv,
-        here("data","model", paste0("lgb_land_level_cv_", stamp, ".rds")))
+        file.path(model_dir, paste0("lgb_land_level_cv_", stamp, ".rds")))
 saveRDS(dv_land_level,
-        here("data","model", paste0("dv_land_level_", stamp, ".rds")))
+        file.path(model_dir, paste0("dv_land_level_", stamp, ".rds")))
 
 # Save training frames to cache (07 uses cache for type alignment / medians)
 saveRDS(model_data_land_level,
-        here("data","cache", "model_data_land_model.rds"))
+        file.path(cache_dir, "model_data_land_model.rds"))
 saveRDS(model_data_land_delta,
-        here("data","cache", "model_data_land_delta_model.rds"))
+        file.path(cache_dir, "model_data_land_delta_model.rds"))
 
 message("✅ Saved land delta + level artifacts with stamp: ", stamp)
 

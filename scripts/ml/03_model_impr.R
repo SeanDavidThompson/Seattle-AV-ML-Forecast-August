@@ -8,11 +8,16 @@ message("Running 03_model_impr.R (LightGBM delta + level rolling CV) ...")
 # Read from the full residential panel (includes spatial distance columns
 # added by xx_combine_res_comm_condo_panel.R).
 # Fall back chain: panel_tbl_res → panel_tbl_res_backbone → panel_tbl
-.panel_path <- if (file.exists(here("data","cache","panel_tbl_res.rds")))
-  here("data","cache","panel_tbl_res.rds") else if (
-  file.exists(here("data","cache","panel_tbl_res_backbone.rds")))
-  here("data","cache","panel_tbl_res_backbone.rds") else
-  here("data","cache","panel_tbl.rds")
+# cache_dir / model_dir come from run_main_ml() via .GlobalEnv; the defaults
+# reproduce the literals that used to be hardcoded here (see 03_model_land.R).
+cache_dir <- get0("cache_dir", envir = .GlobalEnv, ifnotfound = here("data", "cache"))
+model_dir <- get0("model_dir", envir = .GlobalEnv, ifnotfound = here("data", "model"))
+
+.panel_path <- if (file.exists(file.path(cache_dir, "panel_tbl_res.rds")))
+  file.path(cache_dir, "panel_tbl_res.rds") else if (
+  file.exists(file.path(cache_dir, "panel_tbl_res_backbone.rds")))
+  file.path(cache_dir, "panel_tbl_res_backbone.rds") else
+  file.path(cache_dir, "panel_tbl.rds")
 message("  Reading panel from: ", basename(.panel_path))
 panel_tbl <- read_rds(.panel_path)
 rm(.panel_path)
