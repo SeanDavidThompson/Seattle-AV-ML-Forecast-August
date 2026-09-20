@@ -1,1 +1,3 @@
-grep -n "baseline_facets <- " scripts/ml/xx_combine_parcel_history_changes.R
+gate_cols <- c("train_res", "model_res", "is_land_only")
+gate_cols <- gate_cols[gate_cols %chin% names(parcel_dt)]
+baseline_facets <- parcel_dt[, c("parcel_id", "area", facet_cols, dist_cols, gate_cols), with = FALSE]
