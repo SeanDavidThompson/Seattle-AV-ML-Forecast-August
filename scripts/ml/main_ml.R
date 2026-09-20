@@ -45,6 +45,18 @@ CFG <- list(
   use_area_actuals  = TRUE,
   area_reports_year = NULL,   # NULL = defaults to forecast_start - 1
 
+  # ---- Backtest controls (see BACKTEST_DESIGN.md) ----------------------------
+  # train_through_year: NULL = current behaviour.  An integer T filters every
+  #   training frame (res, six commercial subgroups, condo) to tax_yr <= T.
+  #   forecast_start must then equal T + 1.  The observed history handed to
+  #   the extend/forecast steps is truncated by the harness, not here.
+  # locf_backfill: TRUE = current Step 4b/4c fill, na.locf forward then
+  #   fromLast.  FALSE = forward pass only, so a later year can never fill an
+  #   earlier one.  Both modes report how many parcel-years the backward pass
+  #   fills / would have filled.
+  train_through_year = NULL,
+  locf_backfill      = TRUE,
+
   # Which parcels the GEOGRAPHIC district reports are allowed to anchor.
   #   "nonspecialty" (default) - parcels with spec_area == 0 only.  The
   #        published Geo Area totals are computed on the non-specialty
@@ -260,6 +272,116 @@ COM_PU_EXCLUDE <- c(
 COM_SUBGROUP_KEYS <- names(COM_SUBGROUPS)
 
 # =============================================================================
+# retro_fill_av()
+# =============================================================================
+# The Step 4b/4c "retrofit" for the commercial subgroups, com_other and condo:
+# (1) if log_appr_land_val is absent or all-NA, re-join observed AV from
+#     av_history_cln (dash-format aware) and recompute the log / total columns;
+# (2) fill the three log columns per parcel with na.locf forward and, when
+#     backfill = TRUE, na.locf fromLast as well.
+#
+# Hoisted out of run_main_ml() so the backtest harness can build an origin's
+# retro panels with the same code before Step 3 runs.  Behaviour with
+# backfill = TRUE is the inline code it replaced; the one unification is that
+# the re-join also fires when the column is absent (previously only the
+# com_other copy did that), which cannot occur for panels the panel builder
+# produced.
+#
+# Returns dt (modified by reference) with attribute "locf_counts": one row per
+# filled column with n_rows, n_forward_filled, n_backfilled (rows still NA
+# after the forward pass that the backward pass fills / would fill).
+#
+#   dt         data.table with parcel_id, tax_yr, appr_* / log_appr_* columns
+#   cache_dir  where av_history_cln.rds lives (used only if av_hist is NULL
+#              and av_history_cln is not in .GlobalEnv)
+#   backfill   TRUE = forward + fromLast; FALSE = forward only
+#   label      name used in messages
+#   av_hist    optional av_history_cln object to avoid a disk read
+# =============================================================================
+retro_fill_av <- function(dt, cache_dir, backfill = TRUE, label = "",
+                          av_hist = NULL) {
+  data.table::setDT(dt)
+  data.table::setkeyv(dt, c("parcel_id", "tax_yr"))
+
+  if (!"log_appr_land_val" %in% names(dt) ||
+      all(is.na(dt$log_appr_land_val))) {
+    message("  log_appr_land_val all-NA in ", label,
+            " retro panel — re-joining AV ...")
+    if (is.null(av_hist)) {
+      av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
+      if (exists("av_history_cln", envir = .GlobalEnv))
+        av_hist <- get("av_history_cln", envir = .GlobalEnv)
+      else if (file.exists(av_cache_path))
+        av_hist <- readRDS(av_cache_path)
+    }
+    if (!is.null(av_hist)) {
+      av_fix <- data.table::as.data.table(av_hist)
+      # av_history_cln is no-dash; the subgroup / condo panels are
+      # dash-format.  Strip then restore so the join key matches.
+      av_fix[, parcel_id := gsub("-", "", parcel_id)]
+      if (any(grepl("-", utils::head(dt$parcel_id, 10))))
+        av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
+                                     substr(parcel_id, 7, 10))]
+      av_fix <- av_fix[parcel_id %in% unique(dt$parcel_id),
+                       .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
+      dt[av_fix, on = .(parcel_id, tax_yr),
+         `:=`(appr_land_val = i.appr_land_val,
+              appr_imps_val = i.appr_imps_val)]
+      for (cc in c("log_appr_land_val", "log_appr_imps_val",
+                   "log_total_assessed"))
+        if (!cc %in% names(dt)) dt[, (cc) := NA_real_]
+      dt[appr_land_val > 0, log_appr_land_val := log(appr_land_val)]
+      dt[appr_imps_val > 0, log_appr_imps_val := log(appr_imps_val)]
+      dt[, total_assessed :=
+        data.table::fifelse(is.na(appr_land_val), 0, appr_land_val) +
+        data.table::fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
+      dt[total_assessed > 0, log_total_assessed := log(total_assessed)]
+      rm(av_fix)
+      message("    AV re-join complete for ", label, ": land non-NA = ",
+              scales::comma(sum(!is.na(dt$appr_land_val))),
+              " | impr non-NA = ",
+              scales::comma(sum(!is.na(dt$appr_imps_val))))
+    } else {
+      warning("av_history_cln unavailable — cannot repair all-NA AV for ",
+              label, call. = FALSE)
+    }
+  }
+
+  counts <- list()
+  for (col in c("log_appr_land_val", "log_appr_imps_val",
+                "log_total_assessed")) {
+    if (!col %in% names(dt)) next
+    n_na0 <- sum(is.na(dt[[col]]))
+    dt[, (col) := zoo::na.locf(get(col), na.rm = FALSE), by = parcel_id]
+    n_na1 <- sum(is.na(dt[[col]]))
+    # Rows the backward pass fills / would fill: NA after the forward pass,
+    # non-NA after a fromLast pass.
+    back <- dt[, zoo::na.locf(get(col), fromLast = TRUE, na.rm = FALSE),
+               by = parcel_id][[2L]]
+    n_back <- sum(is.na(dt[[col]]) & !is.na(back))
+    if (isTRUE(backfill))
+      dt[, (col) := zoo::na.locf(get(col), fromLast = TRUE, na.rm = FALSE),
+         by = parcel_id]
+    rm(back)
+    counts[[col]] <- data.table::data.table(
+      column = col, n_rows = nrow(dt),
+      n_forward_filled = n_na0 - n_na1,
+      n_backfilled     = n_back,
+      backfill_applied = isTRUE(backfill))
+  }
+  counts <- data.table::rbindlist(counts)
+  if (nrow(counts)) {
+    message("    locf fill (", label, ", backfill = ", isTRUE(backfill), "): ",
+            paste0(counts$column, " fwd=", scales::comma(counts$n_forward_filled),
+                   " back", if (isTRUE(backfill)) "=" else "(would be)=",
+                   scales::comma(counts$n_backfilled),
+                   collapse = " | "))
+  }
+  data.table::setattr(dt, "locf_counts", counts)
+  dt
+}
+
+# =============================================================================
 # run_main_ml()
 # =============================================================================
 run_main_ml <- function(replicate             = CFG$replicate,
@@ -278,6 +400,16 @@ run_main_ml <- function(replicate             = CFG$replicate,
                         forecast_end          = CFG$forecast_end,
                         use_area_actuals      = CFG$use_area_actuals,
                         area_reports_year     = CFG$area_reports_year,
+                        # ---- backtest controls (BACKTEST_DESIGN.md) ----
+                        train_through_year    = CFG$train_through_year,
+                        locf_backfill         = CFG$locf_backfill,
+                        # stop_after = "extend": return after Step 5b, before
+                        # Step 6.  NULL = run everything.
+                        stop_after            = NULL,
+                        # require_area_actuals = TRUE: with use_area_actuals,
+                        # stop() instead of warn if Step 0 imported nothing
+                        # or the wrong assessment year.
+                        require_area_actuals  = FALSE,
                         geo_actuals_scope     = CFG$geo_actuals_scope,
                         specialty_actuals_policy = CFG$specialty_actuals_policy,
                         revalue_shock_weights = CFG$revalue_shock_weights,
@@ -320,6 +452,28 @@ run_main_ml <- function(replicate             = CFG$replicate,
   # post to the A+1 tax roll, and A+1 is the first forecast year.
   if (is.null(area_reports_year)) area_reports_year <- forecast_start - 1L
   area_reports_year <- as.integer(area_reports_year)
+
+  # ---- Backtest controls ----------------------------------------------------
+  if (!is.null(train_through_year)) {
+    if (!is.numeric(train_through_year) || length(train_through_year) != 1 ||
+        is.na(train_through_year))
+      stop("train_through_year must be NULL or a single year")
+    train_through_year <- as.integer(train_through_year)
+    # The comm/condo forecast scripts seed their lag tracker from
+    # tax_yr == forecast_start - 1; any other pairing seeds from a year the
+    # truncated history does not contain.
+    if (forecast_start != train_through_year + 1L)
+      stop("train_through_year = ", train_through_year,
+           " requires forecast_start = ", train_through_year + 1L,
+           " (got ", forecast_start, ")")
+  }
+  if (!is.logical(locf_backfill) || length(locf_backfill) != 1 ||
+      is.na(locf_backfill))
+    stop("locf_backfill must be TRUE or FALSE")
+  if (!is.null(stop_after) && !identical(stop_after, "extend"))
+    stop("stop_after must be NULL or \"extend\"")
+  if (!is.logical(require_area_actuals) || length(require_area_actuals) != 1)
+    stop("require_area_actuals must be TRUE or FALSE")
 
   valid_geo_scope <- c("nonspecialty", "all")
   if (!geo_actuals_scope %in% valid_geo_scope)
@@ -410,6 +564,12 @@ run_main_ml <- function(replicate             = CFG$replicate,
   message("use_area_actuals = ", use_area_actuals,
           if (use_area_actuals) paste0(" (reports year ", area_reports_year, ")") else "")
   message("use_health_ratings = ", use_health_ratings)
+  if (!is.null(train_through_year) || !isTRUE(locf_backfill) ||
+      !is.null(stop_after))
+    message("BACKTEST MODE: train_through_year = ",
+            if (is.null(train_through_year)) "NULL" else train_through_year,
+            " | locf_backfill = ", locf_backfill,
+            " | stop_after = ", if (is.null(stop_after)) "NULL" else stop_after)
   if (length(revalue_shock_weights))
     message("revalue_shock_weights = ",
             paste(vapply(names(revalue_shock_weights), function(k)
@@ -430,6 +590,10 @@ run_main_ml <- function(replicate             = CFG$replicate,
   assign("retrofit_replicate",      retrofit_replicate,      envir = .GlobalEnv)
   assign("forecast_start",          forecast_start,          envir = .GlobalEnv)
   assign("forecast_end",            forecast_end,            envir = .GlobalEnv)
+  # Read by the residential and condo model scripts via get0(); NULL means
+  # "no filter" there, so the assignment is made in both cases to overwrite
+  # anything a previous call left behind.
+  assign("train_through_year",      train_through_year,      envir = .GlobalEnv)
   assign("diagnostics_replicate",   diagnostics_replicate,   envir = .GlobalEnv)
   assign("scenario",                scenario,                envir = .GlobalEnv)
   assign("cache_dir",               cache_dir,               envir = .GlobalEnv)
@@ -505,10 +669,31 @@ run_main_ml <- function(replicate             = CFG$replicate,
         message("  note: no specialty rates this cycle - specialty parcels ",
                 "follow specialty_actuals_policy = '", specialty_actuals_policy,
                 "' and will NOT inherit geographic rates")
+    } else if (isTRUE(require_area_actuals)) {
+      stop("use_area_actuals=TRUE and require_area_actuals=TRUE but no ",
+           "actuals were imported for assessment year ", area_reports_year,
+           " (missing/empty ", file.path("data", "kca", "area_reports",
+                                          area_reports_year), "?)",
+           call. = FALSE)
     } else {
       warning("use_area_actuals=TRUE but no actuals were imported ",
               "(missing/empty area_reports directory?) — continuing without.",
               call. = FALSE)
+    }
+    # A backtest must never silently anchor to a later vintage.  The cache
+    # file name carries the year, but check the rows as well.
+    if (isTRUE(require_area_actuals) &&
+        exists("area_report_actuals", envir = .GlobalEnv)) {
+      .ara <- get("area_report_actuals", envir = .GlobalEnv)
+      .yrs <- unique(stats::na.omit(as.integer(.ara$assessment_yr)))
+      if (nrow(.ara) == 0L)
+        stop("require_area_actuals=TRUE: area_report_actuals is empty for ",
+             area_reports_year, call. = FALSE)
+      if (!identical(.yrs, area_reports_year))
+        stop("require_area_actuals=TRUE: area_report_actuals carries ",
+             "assessment_yr ", paste(.yrs, collapse = ", "),
+             " but area_reports_year = ", area_reports_year, call. = FALSE)
+      rm(.ara, .yrs)
     }
   } else if (exists("area_report_actuals", envir = .GlobalEnv)) {
     # Don't let a stale actuals object leak into a run that disabled them
@@ -844,6 +1029,20 @@ run_main_ml <- function(replicate             = CFG$replicate,
     }
     dt <- data.table::copy(get(panel_obj_name, envir = .GlobalEnv))
     data.table::setDT(dt)
+
+    # --- Backtest: truncate BEFORE anything else -------------------------
+    # Sits ahead of the defensive AV re-join (so it can only populate <= T
+    # rows), the dlog / lag shift, and the predictor scans (near-zero
+    # variance, usable_cols, econ-level twins), so all of those see the
+    # truncated frame.  NULL = no filter = current behaviour.
+    if (!is.null(train_through_year)) {
+      .n0 <- nrow(dt)
+      dt <- dt[tax_yr <= train_through_year]
+      message("    train_through_year = ", train_through_year, ": ",
+              scales::comma(nrow(dt)), " of ", scales::comma(.n0),
+              " rows kept for ", key)
+      rm(.n0)
+    }
 
     # --- Target columns -------------------------------------------------------
     # Ensure log AV columns exist
@@ -1865,6 +2064,25 @@ run_main_ml <- function(replicate             = CFG$replicate,
   # panel_tbl (res backbone created by xx_combine_parcel*) no longer needed
   drop_if_exists("panel_tbl")
 
+  # Training frames are not needed past Step 3.  Every later consumer
+  # (04_retrofitting_values.R, 05_eval_holdout_2025.R, 06_..._sequential.R)
+  # reloads what it needs from cache_dir when the object is absent, so this
+  # changes peak memory only.  This block used to sit after Step 5a and named
+  # model_data_comm_* (which no longer exist), so the 24 subgroup frames
+  # reloaded "for reference" in Step 3b stayed resident through Step 4 — the
+  # 2026-09-19 OOM.
+  model_data_frames <- c(
+    "model_data_land_delta_model", "model_data_land_model",
+    "model_data_impr_delta_model", "model_data_impr_level_model",
+    "model_data_condo_land_delta", "model_data_condo_land_level",
+    "model_data_condo_impr_delta", "model_data_condo_impr_level",
+    as.vector(outer(paste0("model_data_", COM_SUBGROUP_KEYS, "_"),
+                    c("land_delta", "land_level", "impr_delta", "impr_level"),
+                    paste0))
+  )
+  drop_if_exists(model_data_frames)
+  gc(verbose = FALSE)
+
   if (!forecast_only) {
 
   # ============================================================================
@@ -1898,8 +2116,11 @@ run_main_ml <- function(replicate             = CFG$replicate,
     }
 
     # panel_tbl_res and the intermediate panel_tbl_retro are now superseded
-    # by panel_tbl_retro_res.
-    drop_if_exists("panel_tbl_res", "panel_tbl_retro", "panel_tbl")
+    # by panel_tbl_retro_res.  04_retrofitting_values.R reloads three
+    # training frames into .GlobalEnv on its way through; drop them again.
+    drop_if_exists("panel_tbl_res", "panel_tbl_retro", "panel_tbl",
+                   "model_data_land_model", "model_data_impr_delta_model",
+                   "model_data_impr_level_model")
   }
 
   # --------------------------------------------------------------------------
@@ -1929,51 +2150,13 @@ run_main_ml <- function(replicate             = CFG$replicate,
         data.table::setDT(panel_retro_sg)
         data.table::setkeyv(panel_retro_sg, c("parcel_id", "tax_yr"))
 
-        # Re-join AV if all-NA (dash-format mismatch in panel build)
-        if ("log_appr_land_val" %in% names(panel_retro_sg) &&
-            all(is.na(panel_retro_sg$log_appr_land_val))) {
-          message("  log_appr_land_val all-NA in ", key, " retro panel — re-joining AV ...")
-          av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
-          if (!exists("av_history_cln", envir = .GlobalEnv) && file.exists(av_cache_path))
-            assign("av_history_cln", readRDS(av_cache_path), envir = .GlobalEnv)
-          if (exists("av_history_cln", envir = .GlobalEnv)) {
-            av_fix <- data.table::as.data.table(av_history_cln)
-            # av_history_cln is no-dash; the subgroup panels are dash-format.
-            # Stripping the dashes without restoring them made this join match
-            # ZERO rows, so the retro panel stayed all-NA on disk even though
-            # the warning above said the re-join "completed".  Step 3's copy of
-            # the same repair (build_subgroup_model_data) does restore the
-            # dashes, which is why models trained fine while the cached retro
-            # panel -> extend panel -> forecast panel carried no observed AV.
-            av_fix[, parcel_id := gsub("-", "", parcel_id)]
-            if (any(grepl("-", utils::head(panel_retro_sg$parcel_id, 10))))
-              av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
-                                           substr(parcel_id, 7, 10))]
-            av_fix <- av_fix[parcel_id %in% unique(panel_retro_sg$parcel_id),
-                             .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
-            panel_retro_sg[av_fix, on = .(parcel_id, tax_yr),
-                            `:=`(appr_land_val = i.appr_land_val,
-                                 appr_imps_val = i.appr_imps_val)]
-            panel_retro_sg[appr_land_val > 0, log_appr_land_val := log(appr_land_val)]
-            panel_retro_sg[appr_imps_val > 0, log_appr_imps_val := log(appr_imps_val)]
-            panel_retro_sg[, total_assessed :=
-              fifelse(is.na(appr_land_val), 0, appr_land_val) +
-              fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
-            panel_retro_sg[total_assessed > 0, log_total_assessed := log(total_assessed)]
-            rm(av_fix)
-            message("    AV re-join complete for ", key, " retro panel.")
-          }
-          drop_if_exists("av_history_cln")
-        }
-
-        for (col in c("log_appr_land_val",
-                      "log_appr_imps_val",
-                      "log_total_assessed")) {
-          if (col %in% names(panel_retro_sg))
-            panel_retro_sg[, (col) := zoo::na.locf(zoo::na.locf(get(col), na.rm = FALSE),
-                                                    fromLast = TRUE,
-                                                    na.rm = FALSE), by = parcel_id]
-        }
+        # Re-join AV if all-NA (dash-format mismatch in panel build), then
+        # locf fill.  retro_fill_av() is the former inline code, hoisted to
+        # top level so the backtest harness can call it; av_history_cln is
+        # read from .GlobalEnv or cache_dir inside and released on return.
+        # locf_backfill = FALSE (backtest) drops the fromLast pass.
+        panel_retro_sg <- retro_fill_av(panel_retro_sg, cache_dir = cache_dir,
+                                        backfill = locf_backfill, label = key)
 
         retro_name <- paste0("panel_tbl_retro_", key)
         assign(retro_name, panel_retro_sg, envir = .GlobalEnv)
@@ -2007,50 +2190,12 @@ run_main_ml <- function(replicate             = CFG$replicate,
 
         # com_other never had the AV re-join the six subgroups get, so its
         # retro panel carried no observed AV at all and the residual bucket
-        # forecast to $0.  Same repair, same dash handling.
-        if (!"log_appr_land_val" %in% names(panel_retro_other) ||
-            all(is.na(panel_retro_other$log_appr_land_val))) {
-          message("  log_appr_land_val all-NA in com_other retro panel ",
-                  "\u2014 re-joining AV ...")
-          av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
-          if (!exists("av_history_cln", envir = .GlobalEnv) &&
-              file.exists(av_cache_path))
-            assign("av_history_cln", readRDS(av_cache_path), envir = .GlobalEnv)
-          if (exists("av_history_cln", envir = .GlobalEnv)) {
-            av_fix <- data.table::as.data.table(av_history_cln)
-            av_fix[, parcel_id := gsub("-", "", parcel_id)]
-            if (any(grepl("-", utils::head(panel_retro_other$parcel_id, 10))))
-              av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
-                                           substr(parcel_id, 7, 10))]
-            av_fix <- av_fix[parcel_id %in% unique(panel_retro_other$parcel_id),
-                             .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
-            panel_retro_other[av_fix, on = .(parcel_id, tax_yr),
-                              `:=`(appr_land_val = i.appr_land_val,
-                                   appr_imps_val = i.appr_imps_val)]
-            panel_retro_other[appr_land_val > 0,
-                              log_appr_land_val := log(appr_land_val)]
-            panel_retro_other[appr_imps_val > 0,
-                              log_appr_imps_val := log(appr_imps_val)]
-            panel_retro_other[, total_assessed :=
-              fifelse(is.na(appr_land_val), 0, appr_land_val) +
-              fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
-            panel_retro_other[total_assessed > 0,
-                              log_total_assessed := log(total_assessed)]
-            rm(av_fix)
-            message("    AV re-join complete for com_other: land non-NA = ",
-                    scales::comma(sum(!is.na(panel_retro_other$appr_land_val))),
-                    " | impr non-NA = ",
-                    scales::comma(sum(!is.na(panel_retro_other$appr_imps_val))))
-          }
-          drop_if_exists("av_history_cln")
-        }
-
-        for (col in c("log_appr_land_val", "log_appr_imps_val", "log_total_assessed")) {
-          if (col %in% names(panel_retro_other))
-            panel_retro_other[, (col) := zoo::na.locf(zoo::na.locf(get(col), na.rm = FALSE),
-                                                       fromLast = TRUE,
-                                                       na.rm = FALSE), by = parcel_id]
-        }
+        # forecast to $0.  Same repair, same dash handling, same locf fill \u2014
+        # via retro_fill_av() (see the subgroup loop above).
+        panel_retro_other <- retro_fill_av(panel_retro_other,
+                                           cache_dir = cache_dir,
+                                           backfill  = locf_backfill,
+                                           label     = "com_other")
         assign("panel_tbl_retro_com_other", panel_retro_other, envir = .GlobalEnv)
         saveRDS(panel_retro_other, retro_cache_com_other)
         message("  \U1f4be cached: panel_tbl_retro_com_other")
@@ -2078,46 +2223,12 @@ run_main_ml <- function(replicate             = CFG$replicate,
       setDT(panel_retro_condo)
       setkeyv(panel_retro_condo, c("parcel_id", "tax_yr"))
 
-      # Re-join AV if all-NA (dash-format mismatch in panel build)
-      if ("log_appr_land_val" %in% names(panel_retro_condo) &&
-          all(is.na(panel_retro_condo$log_appr_land_val))) {
-        message("  log_appr_land_val all-NA in condo retro panel — re-joining AV ...")
-        av_cache_path <- file.path(cache_dir, "av_history_cln.rds")
-        if (!exists("av_history_cln", envir = .GlobalEnv) && file.exists(av_cache_path))
-          assign("av_history_cln", readRDS(av_cache_path), envir = .GlobalEnv)
-        if (exists("av_history_cln", envir = .GlobalEnv)) {
-          av_fix <- data.table::as.data.table(av_history_cln)
-          # Same dash-format restoration as Step 4b — see the note there.
-          av_fix[, parcel_id := gsub("-", "", parcel_id)]
-          if (any(grepl("-", utils::head(panel_retro_condo$parcel_id, 10))))
-            av_fix[, parcel_id := paste0(substr(parcel_id, 1, 6), "-",
-                                         substr(parcel_id, 7, 10))]
-          av_fix <- av_fix[parcel_id %in% unique(panel_retro_condo$parcel_id),
-                           .(parcel_id, tax_yr, appr_land_val, appr_imps_val)]
-          panel_retro_condo[av_fix, on = .(parcel_id, tax_yr),
-                            `:=`(appr_land_val = i.appr_land_val,
-                                 appr_imps_val = i.appr_imps_val)]
-          panel_retro_condo[appr_land_val > 0, log_appr_land_val := log(appr_land_val)]
-          panel_retro_condo[appr_imps_val > 0, log_appr_imps_val := log(appr_imps_val)]
-          panel_retro_condo[, total_assessed :=
-            fifelse(is.na(appr_land_val), 0, appr_land_val) +
-            fifelse(is.na(appr_imps_val), 0, appr_imps_val)]
-          panel_retro_condo[total_assessed > 0, log_total_assessed := log(total_assessed)]
-          rm(av_fix)
-          message("    AV re-join complete for condo retro panel.")
-        }
-        # av_history_cln is on disk — drop from memory now it is consumed
-        drop_if_exists("av_history_cln")
-      }
-
-      for (col in c("log_appr_land_val",
-                    "log_appr_imps_val",
-                    "log_total_assessed")) {
-        if (col %in% names(panel_retro_condo))
-          panel_retro_condo[, (col) := zoo::na.locf(zoo::na.locf(get(col), na.rm = FALSE),
-                                                    fromLast = TRUE,
-                                                    na.rm = FALSE), by = parcel_id]
-      }
+      # Re-join AV if all-NA (dash-format mismatch in panel build), then locf
+      # fill — same helper as Step 4b.
+      panel_retro_condo <- retro_fill_av(panel_retro_condo,
+                                         cache_dir = cache_dir,
+                                         backfill  = locf_backfill,
+                                         label     = "condo")
 
       assign("panel_tbl_retro_condo", panel_retro_condo, envir = .GlobalEnv)
       saveRDS(panel_retro_condo, retro_cache_condo)
@@ -2410,6 +2521,16 @@ run_main_ml <- function(replicate             = CFG$replicate,
   } # end forecast_only / normal extend branch
 
   gc(verbose = FALSE)
+
+  # Backtest harness: the extended panels are on disk in cache_dir; the
+  # harness swaps their forecast-year drivers for realized values and comes
+  # back with forecast_only = TRUE for Step 6.
+  if (identical(stop_after, "extend")) {
+    message("\nstop_after = \"extend\" — returning before Step 6 (elapsed ",
+            round(as.numeric(difftime(Sys.time(), start_time,
+                                      units = "mins")), 2), " min)")
+    return(invisible(NULL))
+  }
 
   # ============================================================================
   # STEP 6  —  Sequential Forecast 2026-2031
@@ -2709,6 +2830,12 @@ run_main_ml <- function(replicate             = CFG$replicate,
     )
   )
 }
+# Sourcing this file runs the pipeline.  Set MAIN_ML_DEFINE_ONLY <- TRUE in
+# .GlobalEnv first to load the definitions without running anything (the
+# backtest harness does; same pattern as BT_DEFINE_ONLY in
+# xx_area_report_backtest.R).
+if (!isTRUE(get0("MAIN_ML_DEFINE_ONLY", envir = .GlobalEnv,
+                 ifnotfound = FALSE)))
 run_main_ml(
   scenario = "baseline",
   prop_scope = "com",
