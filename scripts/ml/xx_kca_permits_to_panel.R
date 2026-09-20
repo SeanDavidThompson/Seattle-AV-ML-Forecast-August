@@ -5,205 +5,288 @@
 # ---------------
 # xx_permits_to_panel.R sources permits from a City of Seattle SDCI extract
 # ("New Construction for OERF AV <date>.xlsx").  That file is rich but city-
-# scoped and cycle-specific.  The KCA extract (EXTR_Permit ~206,885 rows +
-# EXTR_PermitDetail ~10,239 rows) is the assessor's own permit history: it
-# covers every parcel in the roll, carries PermitVal and PcntComplete, and is
-# keyed on Major/Minor so it joins without an address or GIS match.
+# scoped and cycle-specific.  The KCA extract is the assessor's own permit
+# history: it covers every parcel in the roll, carries PermitVal, and is keyed
+# on Major/Minor so it joins without an address or GIS match.
 #
-# This script ADDS `kcap_*` features.  It does not replace the SDCI features —
-# the two sources overlap but disagree on coverage and on valuation basis, and
-# letting LightGBM see both is more informative than picking one.  The only
-# merged column is `any_newconst`, which takes the max of the two.
+# This script ADDS `kcap_*` features.  It does not replace the SDCI features
+# and — unlike the previous version — it does not merge into them either.  The
+# two sources overlap but disagree on coverage and on valuation basis, and the
+# only way to decide what to drop is to see both separately:
 #
-# Field layout (Permit History Record Description):
-#   Major, Minor, PermitNbr, PermitType, IssueDate, PermitVal, PermitStatus,
-#   PcntComplete, UpdatedBy, UpdateDate
-# Detail (LookUp type 161):
-#   PermitNbr, PermitItem, ItemValue
-#   41 = Owner-Reported Value, 51 = Square Feet, 52 = Nbr Stories,
-#   53 = Nbr Units, 55 = Nbr Buildings, 57 = Occupancy, 12 = Project Name
+#   kcap_permits_3yr           vs  permits_last_3yr      same construct, different universe
+#   log_kcap_val_3yr           vs  log_val_last_3yr      same construct, different valuation basis
+#   kcap_years_since_newconst  vs  years_since_newconst  direct overlap
+#   kcap_newconst_3yr          vs  any_newconst          related; NOT merged (see below)
+#   kcap_remodel_3yr / _demo_3yr / _desc_major_3yr       no SDCI analog
+#
+# The previous version folded its new-construction flag into `any_newconst`
+# with a pmax().  That silently mutated an SDCI feature which now carries real
+# gain, and made the two sources impossible to tell apart.  Removed.
+#
+# THE FEATURES (8)
+# ----------------
+#   kcap_newconst_3yr          "Building, New" + "Accessory, New", trailing 3yr
+#   kcap_remodel_3yr           "Remodel", trailing 3yr
+#   kcap_demo_3yr              "Demolition", trailing 3yr — opposite sign to the above
+#   kcap_permits_3yr           all types, trailing 3yr — parcel activity level
+#   log_kcap_val_3yr           log1p of winsorized trailing-3yr PermitVal sum
+#   log_kcap_val_max_3yr       log1p of the largest single permit in the window
+#   kcap_years_since_newconst  years since last new-construction permit; NA if never
+#   kcap_desc_major_3yr        item-12 description marks structural work in the window
+#
+# The raw kcap_val_3yr / kcap_val_max_3yr columns are dropped after the logs
+# are taken — two extra doubles across ~5.1M panel rows is ~82 MB for columns
+# that are a monotone transform of ones we keep.
+#
+# LEAKAGE
+# -------
+# PermitStatus and PcntComplete describe the permit as of the extract date and
+# carry no history, so attaching "Complete" to a 2015 parcel-year would feed
+# the model 2026 knowledge about 2015.  They are not read at all — see the
+# `select=` in xx_kca_permits_read.R.  Permits dated past the panel's last tax
+# year are dropped before aggregation, counted, and reported.
 #
 # Expects `panel_tbl` in scope (same contract as xx_permits_to_panel.R).
 # =============================================================================
 
 suppressPackageStartupMessages({
   library(data.table)
-  library(janitor)
-  library(stringr)
-  library(zoo)
   library(here)
 })
 
 message("Running xx_kca_permits_to_panel.R ...")
 
+if (!exists("kcap_read_annual", mode = "function"))
+  source(here::here("scripts", "ml", "xx_kca_permits_read.R"))
+
 kca_date <- get("kca_date_data_extracted", envir = .GlobalEnv)
 kca_root <- here::here("data", "kca", kca_date)
 
-permit_path <- file.path(kca_root, "EXTR_Permit.csv")
-detail_path <- file.path(kca_root, "EXTR_PermitDetail.csv")
+# tax_yr convention ----------------------------------------------------------
+# tax_yr N is the payable-N roll, assessed 1 Jan N-1.
+#
+# xx_permits_to_panel.R maps a permit's event year straight onto tax_yr
+# (see its step 7: by = c("tax_yr" = "event_year")).  Lag 0 reproduces that
+# exactly, which is what this block does so the two permit sources agree on
+# timing.
+#
+# For the record, I think that mapping is wrong: a permit issued in November
+# 2015 lands on tax_yr 2015, whose lien date was 1 Jan 2015, so it admits up
+# to ~12 months of look-ahead.  The leak-free map is issue_yr + 1.  Set
+# kcap_tax_yr_lag <- 1L before sourcing (or in CFG) to measure the difference
+# without editing this file.
+kcap_tax_yr_lag <- as.integer(
+  get0("kcap_tax_yr_lag", envir = .GlobalEnv, ifnotfound = 0L))
 
 kcap_predictors <- c(
-  "kcap_permits_1yr", "kcap_permits_3yr", "kcap_permits_5yr",
-  "kcap_val_3yr", "kcap_val_5yr",
-  "kcap_sqft_3yr", "kcap_units_3yr",
-  "kcap_pct_complete_max", "kcap_open_permits",
-  "kcap_years_since_permit",
-  "log_kcap_val_3yr", "log_kcap_sqft_3yr"
+  "kcap_newconst_3yr", "kcap_remodel_3yr", "kcap_demo_3yr",
+  "kcap_permits_3yr",
+  "log_kcap_val_3yr", "log_kcap_val_max_3yr",
+  "kcap_years_since_newconst", "kcap_desc_major_3yr"
 )
+kcap_count_cols <- c("kcap_newconst_3yr", "kcap_remodel_3yr", "kcap_demo_3yr",
+                     "kcap_permits_3yr", "kcap_desc_major_3yr")
 
-if (!file.exists(permit_path)) {
-  message("  \u26a0\ufe0f  ", basename(permit_path),
-          " not found — kcap_* features skipped")
+assign("kcap_predictors", kcap_predictors, envir = .GlobalEnv)
+
+# Read before copying the panel: on a missing extract we must not pay for a
+# 5.1M-row as.data.table() we are about to throw away.
+yr_min <- min(as.integer(panel_tbl$tax_yr), na.rm = TRUE)
+yr_max <- max(as.integer(panel_tbl$tax_yr), na.rm = TRUE)
+
+res <- kcap_read_annual(kca_root, yr_max = yr_max, tax_yr_lag = kcap_tax_yr_lag)
+
+if (is.null(res)) {
+
+  message("  ⚠️  no usable KCA permit extract in ", kca_root,
+          " — kcap_* features skipped (", length(kcap_predictors),
+          " columns not attached)")
+
 } else {
 
-  if (!exists("read_kca", mode = "function")) {
-    read_kca <- function(path, ...) {
-      dt <- fread(file = path, na.strings = c("", "NA", " "),
-                  encoding = "Latin-1", ...)
-      setDT(dt)
-      chr <- names(dt)[vapply(dt, is.character, logical(1))]
-      for (cc in chr)
-        set(dt, j = cc, value = iconv(dt[[cc]], "UTF-8", "UTF-8", sub = ""))
-      clean_names(dt)
-    }
-  }
+  ann <- res$annual
+  nc  <- res$newconst
 
-  # ---- 1. Permit header ------------------------------------------------------
-  pm <- read_kca(permit_path)
-  pm[, parcel_id := paste0(str_pad(trimws(major), 6, "left", "0"), "-",
-                           str_pad(trimws(minor), 4, "left", "0"))]
-
-  # IssueDate is a 19-char string; formats vary across vintages of the extract.
-  parse_kca_date <- function(x) {
-    x <- trimws(as.character(x))
-    d <- suppressWarnings(as.Date(x, format = "%m/%d/%Y"))
-    d[is.na(d)] <- suppressWarnings(as.Date(x[is.na(d)], format = "%Y-%m-%d"))
-    d
-  }
-  pm[, issue_date  := parse_kca_date(issue_date)]
-  pm[, event_year  := data.table::year(issue_date)]
-  pm[, permit_val  := suppressWarnings(as.numeric(permit_val))]
-  pm[, pcnt_complete := suppressWarnings(as.numeric(pcnt_complete))]
-  pm[, permit_type_u   := toupper(trimws(permit_type))]
-  pm[, permit_status_u := toupper(trimws(permit_status))]
-
-  # New-construction flag from permit type text.  KCA PermitType is free-ish
-  # text ("NEW", "ADDITION", "ALTERATION", "DEMOLITION", ...).
-  pm[, is_newconst := as.integer(
-    !is.na(permit_type_u) &
-      str_detect(permit_type_u, "\\b(NEW|NEW CONST|CONSTRUCTION|ADDITION)\\b"))]
-  pm[, is_open := as.integer(
-    !is.na(permit_status_u) &
-      !str_detect(permit_status_u, "\\b(FINAL|COMPLETE|CLOSED|EXPIRED|CANCEL)"))]
-
-  message("  EXTR_Permit rows: ", format(nrow(pm), big.mark = ","),
-          " | parcels: ", format(uniqueN(pm$parcel_id), big.mark = ","),
-          " | years ", min(pm$event_year, na.rm = TRUE), "-",
-          max(pm$event_year, na.rm = TRUE))
-
-  # ---- 2. Permit detail: sqft / units / owner value --------------------------
-  det_wide <- NULL
-  if (file.exists(detail_path)) {
-    det <- read_kca(detail_path)
-    det[, permit_item := suppressWarnings(as.integer(permit_item))]
-    det[, num_val := suppressWarnings(as.numeric(
-      str_replace_all(item_value, "[^0-9.\\-]", "")))]
-    det_wide <- dcast(
-      det[permit_item %in% c(41L, 51L, 53L, 55L) & !is.na(num_val)],
-      permit_nbr ~ permit_item, value.var = "num_val",
-      fun.aggregate = function(z) sum(z, na.rm = TRUE), fill = NA_real_)
-    old <- setdiff(names(det_wide), "permit_nbr")
-    new <- c(`41` = "owner_val", `51` = "permit_sqft",
-             `53` = "permit_units", `55` = "permit_bldgs")[old]
-    setnames(det_wide, old, unname(new))
-    message("  EXTR_PermitDetail matched cols: ",
-            paste(setdiff(names(det_wide), "permit_nbr"), collapse = ", "))
-  } else {
-    message("  \u2139\ufe0f  EXTR_PermitDetail.csv not found — sqft/unit features NA")
-  }
-
-  if (!is.null(det_wide))
-    pm <- merge(pm, det_wide, by = "permit_nbr", all.x = TRUE)
-  for (v in c("owner_val", "permit_sqft", "permit_units", "permit_bldgs"))
-    if (!v %in% names(pm)) pm[, (v) := NA_real_]
-
-  # PermitVal is frequently 0/NA on older rows; owner-reported value backfills.
-  pm[, permit_val_use := fifelse(is.na(permit_val) | permit_val <= 0,
-                                 owner_val, permit_val)]
-
-  # ---- 3. Annual parcel-year aggregation ------------------------------------
-  ann <- pm[!is.na(parcel_id) & !is.na(event_year),
-            .(kcap_cnt        = .N,
-              kcap_val_sum    = sum(permit_val_use, na.rm = TRUE),
-              kcap_sqft_sum   = sum(permit_sqft,    na.rm = TRUE),
-              kcap_units_sum  = sum(permit_units,   na.rm = TRUE),
-              kcap_pct_max    = suppressWarnings(max(pcnt_complete, na.rm = TRUE)),
-              kcap_open_sum   = sum(is_open,        na.rm = TRUE),
-              kcap_new_flag   = as.integer(any(is_newconst == 1L, na.rm = TRUE))),
-            by = .(parcel_id, tax_yr = event_year)]
-  ann[!is.finite(kcap_pct_max), kcap_pct_max := NA_real_]
-
-  # ---- 4. Join into the panel ------------------------------------------------
   pt <- data.table::as.data.table(panel_tbl)
   pt[, parcel_id := as.character(parcel_id)]
   pt[, tax_yr    := as.integer(tax_yr)]
 
-  # Drop any prior kcap_* columns so re-runs don't create .x/.y twins —
-  # this is the same defect that killed the econ block in the 2027+ panels.
+  # Drop any prior kcap_* columns so re-runs don't create .x/.y twins — this
+  # is the same defect that killed the econ block in the 2027+ panels.
   drop_existing <- grep("^kcap_|^log_kcap_", names(pt), value = TRUE)
   if (length(drop_existing)) pt[, (drop_existing) := NULL]
 
-  pt <- merge(pt, ann, by = c("parcel_id", "tax_yr"), all.x = TRUE)
+  # ---- 1. Key format check --------------------------------------------------
+  # The panel's parcel_id is the undashed 10-character form, paste0(Major,
+  # Minor) — see 01_import_res.R.  A dashed id here matches zero rows, which
+  # is exactly how the SDCI permit features arrived constant and went
+  # unnoticed for months.  Verify rather than assume, and say the number out
+  # loud on every run.
+  panel_ids <- unique(pt$parcel_id)
+  file_ids  <- unique(ann$parcel_id)
+  n_in_panel <- sum(file_ids %chin% panel_ids)
+  n_covered  <- sum(panel_ids %chin% file_ids)
+  pct_file   <- round(100 * n_in_panel / length(file_ids), 1)
+  pct_panel  <- round(100 * n_covered  / length(panel_ids), 1)
 
-  zero_cols <- c("kcap_cnt", "kcap_val_sum", "kcap_sqft_sum",
-                 "kcap_units_sum", "kcap_open_sum", "kcap_new_flag")
-  for (cc in zero_cols) pt[is.na(get(cc)), (cc) := 0]
+  message("  key format — panel: ",
+          paste(sort(unique(nchar(head(panel_ids, 1000L)))), collapse = "/"),
+          " chars, dashed=", any(grepl("-", head(panel_ids, 1000L))),
+          " | extract: ",
+          paste(sort(unique(nchar(head(file_ids, 1000L)))), collapse = "/"),
+          " chars, dashed=", any(grepl("-", head(file_ids, 1000L))))
+  message("  join — ", format(n_in_panel, big.mark = ","), " of ",
+          format(length(file_ids), big.mark = ","),
+          " extract parcels are in the panel (", pct_file,
+          "%; the extract is countywide, the panel is Seattle)")
+  message("  join — ", format(n_covered, big.mark = ","), " of ",
+          format(length(panel_ids), big.mark = ","),
+          " panel parcels have at least one permit (", pct_panel, "%)")
 
-  # ---- 5. Rolling windows ----------------------------------------------------
-  data.table::setorder(pt, parcel_id, tax_yr)
-  roll_sum <- function(x, k) zoo::rollapplyr(x, k, sum, fill = 0, partial = TRUE)
-
-  pt[, `:=`(
-    kcap_permits_1yr = kcap_cnt,
-    kcap_permits_3yr = roll_sum(kcap_cnt,       3),
-    kcap_permits_5yr = roll_sum(kcap_cnt,       5),
-    kcap_val_3yr     = roll_sum(kcap_val_sum,   3),
-    kcap_val_5yr     = roll_sum(kcap_val_sum,   5),
-    kcap_sqft_3yr    = roll_sum(kcap_sqft_sum,  3),
-    kcap_units_3yr   = roll_sum(kcap_units_sum, 3),
-    kcap_open_permits = kcap_open_sum
-  ), by = parcel_id]
-
-  pt[, kcap_pct_complete_max :=
-       zoo::na.locf(kcap_pct_max, na.rm = FALSE), by = parcel_id]
-
-  pt[, .last_new := fifelse(kcap_new_flag == 1L, tax_yr, NA_integer_)]
-  pt[, .last_new := zoo::na.locf(.last_new, na.rm = FALSE), by = parcel_id]
-  pt[, kcap_years_since_permit := fifelse(is.na(.last_new), NA_real_,
-                                          as.numeric(tax_yr - .last_new))]
-  pt[, .last_new := NULL]
-
-  pt[, log_kcap_val_3yr  := log1p(pmax(kcap_val_3yr,  0))]
-  pt[, log_kcap_sqft_3yr := log1p(pmax(kcap_sqft_3yr, 0))]
-
-  # ---- 6. Union the new-construction flag with the SDCI one -----------------
-  if ("any_newconst" %in% names(pt)) {
-    pt[, any_newconst := pmax(as.integer(any_newconst),
-                              as.integer(kcap_new_flag), na.rm = TRUE)]
-  } else {
-    pt[, any_newconst := as.integer(kcap_new_flag)]
+  if (n_in_panel == 0L) {
+    warning("kcap: ZERO parcels joined. The key formats above disagree — ",
+            "this is the SDCI dashed-parcel_id failure mode. ",
+            "kcap_* columns will be constant and the models will drop them.")
+    message("  ❌ ZERO JOIN — see warning above")
+  } else if (pct_panel < 1) {
+    warning("kcap: only ", pct_panel, "% of panel parcels matched. ",
+            "Check the key format before trusting these features.")
   }
 
+  # ---- 2. Trailing 3-year windows ------------------------------------------
+  # Built on a compact grid rather than on the 5.1M-row panel: a parcel-year
+  # can only be nonzero if it is within 2 years after some permit, so the grid
+  # is (activity years) x {0,1,2}, which is a few hundred thousand rows.  The
+  # window itself is a non-equi self-join, so it does not assume the panel or
+  # the grid has a contiguous year sequence per parcel the way a shift() or a
+  # rollapplyr() would.
+  ann_win <- ann[tax_yr >= yr_min - 2L]
+  grid <- unique(data.table::rbindlist(list(
+    ann_win[, .(parcel_id, tax_yr)],
+    ann_win[, .(parcel_id, tax_yr = tax_yr + 1L)],
+    ann_win[, .(parcel_id, tax_yr = tax_yr + 2L)])))
+  grid <- grid[tax_yr >= yr_min & tax_yr <= yr_max & parcel_id %chin% panel_ids]
+  grid[, `:=`(lo = tax_yr - 2L, hi = tax_yr)]
+
+  # An empty grid means nothing joined; go straight to the zero-fill rather
+  # than calling max() over no rows and emitting a -Inf warning that reads
+  # like a real problem on top of the join diagnostics above.
+  win <- if (!nrow(grid)) {
+    data.table::data.table(
+      parcel_id = character(), tax_yr = integer(),
+      kcap_permits_3yr = integer(), kcap_newconst_3yr = integer(),
+      kcap_remodel_3yr = integer(), kcap_demo_3yr = integer(),
+      kcap_desc_major_3yr = integer(),
+      kcap_val_3yr = numeric(), kcap_val_max_3yr = numeric())
+  } else ann[grid,
+             on = .(parcel_id, tax_yr >= lo, tax_yr <= hi),
+             by = .EACHI,
+             .(kcap_permits_3yr    = sum(kcap_n_all),
+               kcap_newconst_3yr   = sum(kcap_n_newconst),
+               kcap_remodel_3yr    = sum(kcap_n_remodel),
+               kcap_demo_3yr       = sum(kcap_n_demo),
+               kcap_desc_major_3yr = as.integer(sum(kcap_n_desc_major) > 0L),
+               kcap_val_3yr        = sum(kcap_val_sum),
+               kcap_val_max_3yr    = max(kcap_val_max))]
+  # The non-equi join names BOTH range-bound output columns after x's column,
+  # so `win` comes back with two columns literally called "tax_yr" (the lower
+  # bound then the upper). Rename positionally — by name is ambiguous, and
+  # which suffix data.table appends has varied across versions. Columns 2 and
+  # 3 are lo and hi; hi is the grid's tax_yr.
+  if (identical(names(win)[1:3], c("parcel_id", "tax_yr", "tax_yr"))) {
+    data.table::setnames(win, 1:3, c("parcel_id", ".lo", "tax_yr"))
+    win[, .lo := NULL]
+  } else {
+    # The empty-grid shortcut above already has the right names. Anything else
+    # means the join's output shape changed under us — stop rather than carry
+    # on and join on the wrong column.
+    stopifnot(identical(names(win)[1:2], c("parcel_id", "tax_yr")))
+  }
+  data.table::setkey(win, parcel_id, tax_yr)
+
+  rm(ann_win, grid); gc(verbose = FALSE)
+  message("  window rows built: ", format(nrow(win), big.mark = ","))
+
+  # ---- 3. Years since new construction --------------------------------------
+  # Rolling join over the FULL permit history (not just the 3-year window and
+  # not just panel years), so a 1952 new-construction permit still dates a
+  # 2015 parcel-year.  NA — not 0 — when the parcel has never had one, so the
+  # model can split on missingness instead of reading "never built" as "built
+  # this year".
+  if (nrow(nc)) {
+    pt[, .last_nc := nc[.SD, on = .(parcel_id, tax_yr), roll = TRUE, x.tax_yr],
+       .SDcols = c("parcel_id", "tax_yr")]
+    pt[, kcap_years_since_newconst :=
+         data.table::fifelse(is.na(.last_nc), NA_real_,
+                             as.numeric(tax_yr - .last_nc))]
+    pt[, .last_nc := NULL]
+  } else {
+    pt[, kcap_years_since_newconst := NA_real_]
+  }
+
+  # ---- 4. Join the windows into the panel -----------------------------------
+  pt[win, on = .(parcel_id, tax_yr), `:=`(
+    kcap_permits_3yr    = i.kcap_permits_3yr,
+    kcap_newconst_3yr   = i.kcap_newconst_3yr,
+    kcap_remodel_3yr    = i.kcap_remodel_3yr,
+    kcap_demo_3yr       = i.kcap_demo_3yr,
+    kcap_desc_major_3yr = i.kcap_desc_major_3yr,
+    kcap_val_3yr        = i.kcap_val_3yr,
+    kcap_val_max_3yr    = i.kcap_val_max_3yr)]
+
+  rm(win); gc(verbose = FALSE)
+
+  # A panel row outside every window genuinely had no permit activity, so 0 is
+  # the right fill here — unlike kcap_years_since_newconst, where 0 would be a
+  # lie.  Counts stay integer to keep ~5.1M rows cheap.
+  for (cc in kcap_count_cols)
+    pt[is.na(get(cc)), (cc) := 0L]
+  for (cc in c("kcap_val_3yr", "kcap_val_max_3yr"))
+    pt[is.na(get(cc)), (cc) := 0]
+
+  # ---- 5. Value transforms --------------------------------------------------
+  # PermitVal is already winsorized at the 99.5th percentile of nonzero values
+  # in the read layer; log1p handles the 17% zeros and what is left of the
+  # skew.  Raw columns dropped once the logs exist (see header).
+  pt[, log_kcap_val_3yr     := log1p(pmax(kcap_val_3yr,     0))]
+  pt[, log_kcap_val_max_3yr := log1p(pmax(kcap_val_max_3yr, 0))]
+  pt[, c("kcap_val_3yr", "kcap_val_max_3yr") := NULL]
+
+  # ---- 6. Coverage report ---------------------------------------------------
+  # Follows the report_cols pattern in xx_combine_parcel_history_changes.R: a
+  # silent guard is how the missing gate columns went unnoticed for months.
   present <- intersect(kcap_predictors, names(pt))
-  cov_pct <- round(100 * mean(pt$kcap_permits_5yr > 0, na.rm = TRUE), 1)
-  message("  \u2705 kcap features added (", length(present), "): ",
-          paste(present, collapse = ", "))
-  message("  parcel-years with a permit in the last 5 yrs: ", cov_pct, "%")
+  missing <- setdiff(kcap_predictors, names(pt))
+  all_na  <- present[vapply(present, function(cc) all(is.na(pt[[cc]])),
+                            logical(1))]
+  all_const <- present[vapply(present, function(cc)
+    data.table::uniqueN(pt[[cc]], na.rm = TRUE) <= 1L, logical(1))]
+  nz_rows <- pt[, sum(kcap_permits_3yr > 0, na.rm = TRUE)]
+
+  message("  ✅ kcap features attached: ", length(present), " of ",
+          length(kcap_predictors), " (", paste(present, collapse = ", "), ")")
+  if (length(missing))
+    message("    ❌ NOT attached: ", paste(missing, collapse = ", "))
+  message("    all-NA: ", length(all_na),
+          if (length(all_na)) paste0(" (", paste(all_na, collapse = ", "), ")") else "",
+          " | constant: ", length(all_const),
+          if (length(all_const)) paste0(" (", paste(all_const, collapse = ", "), ")") else "")
+  message("    parcel-years with a permit in the trailing 3 yrs: ",
+          format(nz_rows, big.mark = ","), " of ",
+          format(nrow(pt), big.mark = ","), " (",
+          round(100 * nz_rows / nrow(pt), 1), "%)")
+  message("    parcel-years with a dated new-construction permit: ",
+          format(pt[, sum(!is.na(kcap_years_since_newconst))], big.mark = ","))
+
+  if (length(all_na) || length(all_const))
+    warning("kcap: ", length(all_na), " all-NA and ", length(all_const),
+            " constant feature(s) — the models will drop these as ",
+            "zero-variance. See the join diagnostics above.")
 
   panel_tbl <- pt
   assign("panel_tbl", pt, envir = .GlobalEnv)
-  assign("kcap_predictors", kcap_predictors, envir = .GlobalEnv)
-  rm(pm, ann, pt)
+  rm(ann, nc, res, pt)
   gc(verbose = FALSE)
 }
 

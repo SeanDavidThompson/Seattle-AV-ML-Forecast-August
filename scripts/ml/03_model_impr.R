@@ -79,8 +79,18 @@ econ_prod_level <- c(
   # "econ_seattle_msa_cpi_u_1982_1984_100_lvl_lag1"  # excluded: see above
 )
 
+# KCA permit history -> kcap_*.  Additive to permit_predictors above, not a
+# replacement: three of the eight are the same construct as an SDCI feature but
+# over a countywide universe and a different valuation basis, and the other
+# five (remodel, demolition, description) have no SDCI analog at all.  Both
+# sets go in so the gain report can decide what to drop.  Defined by
+# xx_kca_permits_to_panel.R; absent when use_kca_permits = FALSE.
+kcap_predictors <- get0("kcap_predictors", ifnotfound = character(0))
+kcap_predictors <- kcap_predictors[kcap_predictors %in% names(panel_tbl)]
+
 permit_predictors <- permit_predictors[permit_predictors %in% names(panel_tbl)]
-impr_predictors   <- c(base_impr_predictors, permit_predictors, nwmls_predictors, econ_prod_delta, econ_prod_level)
+impr_predictors   <- c(base_impr_predictors, permit_predictors, kcap_predictors,
+                       nwmls_predictors, econ_prod_delta, econ_prod_level)
 impr_predictors   <- impr_predictors[impr_predictors %in% names(panel_tbl)]
 
 # ------------------------------------------------------------------

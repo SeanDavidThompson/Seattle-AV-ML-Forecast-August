@@ -118,7 +118,7 @@ CFG <- list(
                                # tier 5 ~$0. Not worth the unvalidated risk.
 
   # ---- Additional panel data sources -----------------------------------------
-  use_kca_permits        = TRUE,   # EXTR_Permit + EXTR_PermitDetail  -> kcap_*
+  use_kca_permits        = TRUE,   # EXTR_PermitHistory_V + detail    -> kcap_*
   use_construction_sales = TRUE,   # TRS construction sales tax       -> con_sales_*
   use_home_improvement   = TRUE,   # HI applications + exemptions     -> hi_*
 
@@ -1485,10 +1485,11 @@ run_main_ml <- function(replicate             = CFG$replicate,
     source_global(here::here("scripts", "ml", "xx_combine_parcel_history_changes.R"))
     gc(verbose = FALSE)
     source_global(here::here("scripts", "ml", "xx_permits_to_panel.R"))
-    # KCA permit history (EXTR_Permit + EXTR_PermitDetail) -> kcap_* features.
-    # Additive to the SDCI permit features above, not a replacement: the two
-    # sources differ on coverage and valuation basis.  Only `any_newconst` is
-    # merged (max of the two).
+    # KCA permit history (EXTR_PermitHistory_V + EXTR_PermitDetailHistory_V)
+    # -> kcap_* features.  Additive to the SDCI permit features above, not a
+    # replacement: the two sources differ on coverage and valuation basis.
+    # Nothing is merged into the SDCI columns -- `any_newconst` is left alone
+    # so the two sources stay separable in the gain report.
     if (isTRUE(use_kca_permits))
       source_global(here::here("scripts", "ml", "xx_kca_permits_to_panel.R"))
     # Home improvement exemptions -> hi_*.  hi_rolloff_next_val is a scheduled,
