@@ -129,7 +129,7 @@ dist_cols_wanted <- c("dist_to_public_km", "dist_to_private_km", "dist_to_lightr
 dist_cols <- dist_cols_wanted[dist_cols_wanted %chin% names(parcel_dt)]
 report_cols("dist_cols", dist_cols_wanted, dist_cols)
 
-gate_cols_wanted <- c("train_res", "model_res", "is_land_only")
+gate_cols_wanted <- c("train_res", "model_res", "is_land_only", "is_small_mf")
 gate_cols <- gate_cols_wanted[gate_cols_wanted %chin% names(parcel_dt)]
 report_cols("gate_cols", gate_cols_wanted, gate_cols)
 baseline_facets <- parcel_dt[, c("parcel_id", "area", facet_cols, dist_cols, gate_cols), with = FALSE]
