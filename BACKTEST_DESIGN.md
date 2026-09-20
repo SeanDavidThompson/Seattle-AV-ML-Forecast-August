@@ -1,7 +1,7 @@
 # Backtest harness — design
 
-Branch `feature/backtest-harness`. Design only; nothing below is implemented
-yet. Line numbers are against `main` at `067a84a`.
+Branch `feature/backtest-harness`. Reviewed 2026-09-20; §11 records the
+decisions. Line numbers are against `main` at `067a84a`.
 
 Goal: forecast error by horizon for origins 2022–2025, so the pipeline's track
 record can sit next to King County OEFA's published forecasts.
@@ -90,8 +90,9 @@ training frames to `here("data","cache")`; both `03_model_land.R:11` and
 `03_model_impr.R:11` read the panel from `here("data","cache")`. A backtest
 that ran with a separate `model_dir` would still drop truncated land models
 into `data/model/`, and `latest_model_file()` (`main_ml.R:569`, picks newest
-mtime) would then serve them to the next production run. That is a hazard the
-harness has to close (§9, change 8).
+mtime) would then serve them to the next production run. **Fixed on `main`
+at `7b4be49`, independent of this branch** (paths now resolve from
+`cache_dir`/`model_dir` with the old literals as standalone defaults).
 
 **`main_ml.R` runs the pipeline when sourced.** Line 2712 is a bare
 `run_main_ml(scenario = "baseline", prop_scope = "com", forecast_only = TRUE,
@@ -120,10 +121,9 @@ backtest measures:**
    Copy 2 lacks the land-only gate (`:143-194`, `:267-274`, `:291-296`) and
    runs last, so `panel_tbl_forecasted_condo` and the condo cache are the
    **ungated** output — the exact shape of the B1 defect that was fixed for the
-   residential file (`BUGS_2026-09.md`). The backtest will measure the ungated
-   condo forecast because that is what production ships. I am not touching it
-   here (it would change production output). Flagging so the condo numbers
-   are read with that in mind.
+   residential file (`BUGS_2026-09.md`). **Fixed on `fix/condo-forecast-dedupe`
+   (PR #7)**: copy 2 removed, copy 1 kept verbatim. That PR merges before the
+   backtest runs, so backtest and production measure the same condo code.
 2. The post-Step-5a drop block (`main_ml.R:2199-2210`) names
    `model_data_comm_land_delta` / `model_data_comm_impr_delta`, which no
    longer exist. The six subgroups' 24 frames (`model_data_<key>_<tt>`) are
@@ -257,43 +257,46 @@ stages it as the residential retro panel for every origin. Step 4a is not
 re-run. Commercial and condo have no model-based retrofit — their "retrofit"
 is the locf fill above, rebuilt per origin from ≤T data.
 
-Caveat text (README and run header):
+Caveat text (README, run header, and the header rows of every metrics CSV):
 
 > Missing historical residential values were imputed once, by the production
 > retrofit models fit on data through 2026, and those imputed values are
-> reused for every origin. A strict backtest would re-fit the retrofit through
-> T. This is a known source of optimism, confined to parcels with no observed
-> value at the origin year.
+> reused for every origin. The imputed panel is the base the extend and
+> forecast steps work from, so imputation shapes the forecast path wherever a
+> parcel's history has gaps, even though the parcel models themselves were
+> trained on observed values only. A strict backtest would re-fit the
+> retrofit through T. This is a known source of optimism. The tables split
+> out the cohort of parcels with an observed value at the origin year, where
+> imputation does not touch the seed.
 
-**Estimate of how much it matters.** Less than the framing in the brief
-implies, for a structural reason: the residential models train on the raw
-panel, not the retro panel, so the ~670k/~651k imputed parcel-years are never
-training targets (see §0). They reach the backtest through one channel only —
-the seed. A parcel with no observed value at T is seeded from an imputation
-made with 2026-vintage models, then forecast forward. Which parcels are those?
-Mostly parcels created after T (the panel is a 2006–2026 spine over the
-2026 extract's parcel universe, so a 2024 subdivision has imputed rows for
-2006–2023) plus parcels with a filtered year at T (exemption, special
-valuation). For Seattle residential that is on the order of one to a few
-thousand parcels a year against ~170k, so I expect the imputed-seed share of
-scored parcel-years to be low single-digit percent at h=1, rising with
-horizon. On value-weighted metrics the share can be a bit higher because new
-parcels skew to new construction.
+**Where it enters, and what is isolated.** The residential models train on
+the raw panel, so the ~670k/~651k imputed parcel-years are not training
+targets (§0). But `04_retrofitting_values.R` writes `panel_tbl_retro_res`,
+that is what Step 5b extends, and the extend output is what Step 6 forecasts
+from. So imputation reaches the forecast through the base panel: the year-T
+seed (`appr_land_val_filled` at `hist_max_yr`) and the lag2 at T+1 for any
+parcel whose year-T or T−1 value is imputed, plus the frozen parcel state
+where the retro step aligned columns. The `seed_observed` split isolates the
+cohort where the *seed* is observed; it does not make the base panel
+imputation-free, and the caveat is framed that way.
 
-Rather than rely on that guess, the harness measures it:
+Who has an imputed seed? Mostly parcels created after T (the panel is a
+2006–2026 spine over the 2026 extract's parcel universe, so a 2024
+subdivision has imputed rows for 2006–2023) plus parcels with a filtered
+year at T (exemption, special valuation). For Seattle residential that is on
+the order of one to a few thousand parcels a year against ~170k, so I expect
+the imputed-seed share of scored parcel-years to be low single-digit percent
+at h=1, rising with horizon, and somewhat higher value-weighted because new
+parcels skew to new construction. That is a guess; the harness measures it:
 
 - every scored parcel-year carries `seed_observed` (observed AV > 0 at T in
   `av_history_cln`);
 - all error tables are produced for `pop = "seed_observed"` (headline) and
   `pop = "all_scored"`;
-- the citywide growth series uses the `seed_observed` cohort only (existing
-  parcels at T), which is also the right population to compare with an
-  existing-property growth rate;
+- the citywide growth series uses the `seed_observed` cohort only, which is
+  also the matched-parcel population `av_reconcile_certified.R` defines;
 - `seed_coverage.csv` reports the count and AV share of imputed-seed rows by
   origin × horizon × track.
-
-So the D4 optimism is zero in the headline tables and the growth series, and
-its size in the all-scored tables is reported next to them.
 
 For commercial and condo the analogous seed issue is staleness, not optimism:
 a parcel missing T is seeded from its last prior observed year by the forward
@@ -567,7 +570,10 @@ run_backtest(origins        = 2022:2025,
              stage_mode     = c("link", "copy"),
              run_in_process = FALSE,
              keep_work      = FALSE,
-             score_only     = FALSE)
+             score_only     = FALSE,
+             smoke_stop     = TRUE,      # stop after the first origin if the
+             smoke_min_coverage = 0.5,   #   h=1 bracket check fails (§11)
+             smoke_max_err_pp   = 10)
 ```
 
 ---
@@ -618,10 +624,10 @@ path in production.
    `file.path(cache_dir, "panel_tbl_res.rds")` (same fallback chain). In
    production Step 2 has just loaded that exact file into `panel_tbl_res`, so
    the object is identical and the second multi-GB read is avoided; under
-   `forecast_only = TRUE` the disk path is unchanged. Writes in
-   `03_model_land.R:270-291`: `here("data","model")` → `model_dir`,
-   `here("data","cache")` → `cache_dir` (both equal the current literals in
-   production). D2 filter as in §D2.
+   `forecast_only = TRUE` the disk path is unchanged. This is what lets the
+   harness hand the model scripts a panel without writing anything to the
+   production cache. (The write-path redirect that was part of this change
+   landed on `main` at `7b4be49`.) D2 filter as in §D2.
 
 **`scripts/ml/03_model_condo_land.R`, `03_model_condo_impr.R`**
 
@@ -657,26 +663,39 @@ Empirical, on the data machine (this checkout has no `data/`):
 
 ---
 
-## 11. Things to confirm before I implement
+## 11. Decisions from review (2026-09-20)
 
-1. **Realized `con_sales_*`** (§D1): realize with the other citywide series,
-   or freeze at T as production freezes it at 2026?
-2. **Growth cohort** (§8.4): existing parcels at T, matched-parcel, as
-   `av_reconcile_certified.R` defines it. Fine?
-3. **Condo duplicated forecast file** (§0): leave as-is and measure production
-   as shipped (my proposal), or dedupe on a separate branch first and rebase
-   this one?
-4. **Change 8, prefer-GlobalEnv panel read**: it is identical data and cuts a
-   multi-GB read, but it is a behaviour change in the sense of "where the
-   bytes come from". I can keep the disk read and only redirect the path if
-   you'd rather.
-5. **Change 7**: I have extended "move the block" to include the subgroup
-   frames and a post-4a re-drop, because the block as written never matched
-   the subgroup frame names. Say if you want strictly the original list moved.
-6. **Child process per origin** (§8.2): `Rscript` via `system2()`, no new
-   package dependency. OK, or would you rather it stay in-session?
+1. **`con_sales_*`**: realized with the other citywide series. TRS
+   construction sales is a realized, citywide, `tax_yr`-keyed series;
+   treating it differently would be an inconsistency.
+2. **Growth cohort**: matches `av_reconcile_certified.R` exactly.
+3. **Condo duplicated forecast file**: fixed first, on
+   `fix/condo-forecast-dedupe` (PR #7), to merge before the backtest runs.
+4. **Prefer-GlobalEnv panel read**: yes — it keeps backtest artefacts out
+   of `data/cache/`.
+5. **Drop-block scope**: includes the subgroup frames.
+6. **Child process per origin**: yes. Fresh heap per origin is the reason
+   the OOM will not recur.
 
-Not questions, just stated assumptions: `scenario = "baseline"`; `prop_scope =
+Two additions from review:
+
+- **The D1/D4 header travels inside the metrics CSVs.** Every CSV the
+  harness writes starts with `#`-prefixed comment lines carrying the
+  conditional-backtest and retrofit caveats, the origins, the git SHA and
+  the run timestamp, before the column header. `readr::read_csv(comment =
+  "#")` / `data.table::fread()` skip them; a person opening the file sees
+  them first.
+- **Origin 2025 runs first, alone, as a smoke test.** `run_backtest()`
+  processes origins in descending order and, after the first origin
+  completes, scores it and prints a bracket check for h=1: the anchored and
+  unanchored citywide growth against the observed TY2026 growth on the
+  matched cohort, scored-parcel coverage, and per-track bias. If coverage is
+  below `smoke_min_coverage` (default 0.5) or either mode's growth error
+  exceeds `smoke_max_err_pp` (default 10 pp), the loop stops before the next
+  origin starts (`smoke_stop = TRUE`). `run_backtest(origins = 2025)` runs
+  just that.
+
+Stated assumptions, unchanged: `scenario = "baseline"`; `prop_scope =
 "all"`; `final_year = 2026` (last observed tax year in `av_history_cln`);
 production defaults for every other `CFG` entry (`geo_actuals_scope`,
 `specialty_actuals_policy`, `com_other_*`, `vacancy_monotone`, no revalue
