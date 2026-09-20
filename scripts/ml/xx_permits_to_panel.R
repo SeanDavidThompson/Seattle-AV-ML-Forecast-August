@@ -22,7 +22,12 @@ permit_sqft_raw <- read_excel(permit_file, sheet = "sqft")   %>% clean_names()
 permit_gis <- permit_gis_raw %>%
   mutate(
     kc_parcel = str_pad(as.character(kc_parcel), 10, pad = "0"),
-    parcel_id = str_c(str_sub(kc_parcel, 1, 6), "-", str_sub(kc_parcel, 7, 10))
+    # No dash: the panel's parcel_id is the undashed 10-character form (see
+    # the gsub in xx_combine_parcel_history_changes.R). A dashed id here made
+    # the join at the left_join below match zero rows, so all eleven permit
+    # features arrived constant and 03_model_impr.R dropped them as
+    # zero-variance.
+    parcel_id = str_c(str_sub(kc_parcel, 1, 6), str_sub(kc_parcel, 7, 10))
   )
 
 # ---- 3) Summarise sqft lines per record_number ----

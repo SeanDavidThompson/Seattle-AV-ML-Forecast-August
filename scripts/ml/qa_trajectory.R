@@ -66,6 +66,12 @@ if (!is.null(res)) {
   # is_small_mf lives in parcel_res_full but is not carried into the panel —
   # derive it by parcel_id join (dash-insensitive) so the rollup can exclude
   # the ~6.5K parcels that are also forecast in the commercial track.
+  #
+  # NOTE (2026-09): is_small_mf is now carried into the panel by
+  # xx_combine_parcel_history_changes.R (gate_cols), so on a freshly built
+  # panel the branch below is skipped because the column already exists.
+  # This fallback is kept so cached panels built before that change still
+  # work; retire it after one clean end-to-end run.
   if (!"is_small_mf" %in% names(res)) {
     prf <- file.path(cache_dir, "parcel_res_full.rds")
     if (file.exists(prf)) {

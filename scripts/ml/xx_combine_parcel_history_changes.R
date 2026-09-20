@@ -109,14 +109,29 @@ for (i in seq_len(nrow(attr_map_noupdate))) {
 # -------------------------------------------------------------------
 # 4) Baseline facets (area + mapped facets + baseline distance cols)
 # -------------------------------------------------------------------
-facet_cols <- unique(attr_map_noupdate$col_name)
-facet_cols <- facet_cols[facet_cols %chin% names(parcel_dt)]
+# Each %chin% guard below silently drops anything parcel_dt does not supply.
+# Report what survived and name what did not: a silent guard is how the
+# missing gate columns went unnoticed for months.
+report_cols <- function(label, wanted, kept) {
+  missing <- setdiff(wanted, kept)
+  message("  ", label, ": carried ", length(kept), " of ", length(wanted),
+          if (length(kept)) paste0(" (", paste(kept, collapse = ", "), ")") else "")
+  if (length(missing))
+    message("    MISSING from parcel_res_full: ",
+            paste(missing, collapse = ", "))
+}
 
-dist_cols <- c("dist_to_public_km", "dist_to_private_km", "dist_to_lightrail_km")
-dist_cols <- dist_cols[dist_cols %chin% names(parcel_dt)]
+facet_cols_wanted <- unique(attr_map_noupdate$col_name)
+facet_cols <- facet_cols_wanted[facet_cols_wanted %chin% names(parcel_dt)]
+report_cols("facet_cols", facet_cols_wanted, facet_cols)
 
-gate_cols <- c("train_res", "model_res", "is_land_only")
-gate_cols <- gate_cols[gate_cols %chin% names(parcel_dt)]
+dist_cols_wanted <- c("dist_to_public_km", "dist_to_private_km", "dist_to_lightrail_km")
+dist_cols <- dist_cols_wanted[dist_cols_wanted %chin% names(parcel_dt)]
+report_cols("dist_cols", dist_cols_wanted, dist_cols)
+
+gate_cols_wanted <- c("train_res", "model_res", "is_land_only", "is_small_mf")
+gate_cols <- gate_cols_wanted[gate_cols_wanted %chin% names(parcel_dt)]
+report_cols("gate_cols", gate_cols_wanted, gate_cols)
 baseline_facets <- parcel_dt[, c("parcel_id", "area", facet_cols, dist_cols, gate_cols), with = FALSE]
 
 setkey(baseline_facets, parcel_id)
