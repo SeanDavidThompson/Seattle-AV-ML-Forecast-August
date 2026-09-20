@@ -388,16 +388,35 @@ Not fixed: the panel-assembly defect that makes the repair load-bearing.
 
 New:
 
-- `scripts/ml/backtest_harness.R` — `run_backtest()` and helpers (`bt_*`).
+- `scripts/ml/backtest_harness.R` — `run_backtest()` and helpers (`bt_*`),
+  including `bt_compare_caches()` (§10).
 - `scripts/ml/backtest_origin.R` — `Rscript` entry point for one origin
-  (sources the harness, calls `bt_run_origin(T)`).
+  (reads the config `run_backtest()` saved, sources the harness, calls
+  `bt_run_origin()`).
 - `scripts/ml/test_backtest_retro_fill.R` — synthetic-data test that the
-  `retro_fill_av()` refactor reproduces the inline Step 4b/4c code (§10,
-  the verification plan).
+  `retro_fill_av()` refactor is `identical()` to the inline Step 4b/4c code,
+  that `backfill = FALSE` is forward-only, and that the D3 counts match a
+  direct computation. Runs without data.
+- `scripts/ml/test_backtest_scoring.R` — synthetic-data test of driver
+  extraction/realization, error and growth scoring, the anchored −
+  unanchored deltas, the smoke check, the CSV header round-trip and
+  prediction extraction. Runs without data.
 
 Modified (all additive, all default to current behaviour): `main_ml.R`,
 `03_model_land.R`, `03_model_impr.R`, `03_model_condo_land.R`,
 `03_model_condo_impr.R`. Exact change list in §9.
+
+How to run, on the data machine, after PR #7 is merged:
+
+```r
+MAIN_ML_DEFINE_ONLY <- TRUE
+source(here::here("scripts", "ml", "main_ml.R"))
+source(here::here("scripts", "ml", "backtest_harness.R"))
+run_backtest(origins = 2025)         # smoke: one horizon, prints the bracket check
+run_backtest(origins = 2022:2025)    # full triangle; 2025 runs first and gates the rest
+```
+
+Outputs land in `data/outputs/backtest/`; per-origin logs in `logs/`.
 
 ### 8.2 Per-origin flow (child process)
 
