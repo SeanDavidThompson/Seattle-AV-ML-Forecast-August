@@ -1,673 +1,582 @@
-> run_main_ml(forecast_only = TRUE)
-==============================================
-run_main_ml() started at: 2026-09-21 01:15:10
-replicate=FALSE | panel_replicate=FALSE | model_replicate=FALSE | retrofit=FALSE | diagnostics=FALSE | extend=TRUE | forecast_only=TRUE
-scenario = baseline | prop_scope = all
-  commercial subgroups: apt, office, industrial, retail, hospitality, medical
-forecast = 2027-2031
-use_area_actuals = TRUE (reports year 2026)
-use_health_ratings = TRUE
-kca_date = 2026-09-04 | seed = 456
-import_raw_changes = FALSE
-==============================================
-00_init.R loaded. the cake is still a lie.
-  com_other_growth_method = com_weighted | reclassify_com_other = TRUE (max tier 3)
-  extra sources -> kca_permits: TRUE | construction_sales: TRUE | home_improvement: TRUE
+# 06_forecast_av_2026_2031_sequential.R ----------------------------------
+# Forecast land + improvements AV for 2026–2031 sequentially (recursive).
+#
+# Strategy per year, per component (delta models only):
+#   Predict delta_log = f(lag, parcel features, exogenous indicators)
+#   log_AV[t] = log_AV[t-1] + delta_log[t]
+#
+# Runs over all three scenario input panels: baseline, optimistic, pessimistic.
+# Each scenario is saved independently to cache + wrangled.
+# -------------------------------------------------------------------------
 
---- Step 0: Import actual AV growth from area reports ---
-  geo_actuals_scope = nonspecialty | specialty_actuals_policy = model
-  ✅ loaded from cache: area_report_actuals_2026.rds
-  area_report_actuals available: 47 geographic areas | 7 specialty areas
+cache_dir  <- get("cache_dir",  envir = .GlobalEnv)
+model_dir  <- get("model_dir",  envir = .GlobalEnv)
+output_dir <- get("output_dir", envir = .GlobalEnv)
+scenario   <- get("scenario",   envir = .GlobalEnv)
 
---- Steps 1-5b: Skipped (forecast_only=TRUE — loading cached extended panels) ---
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
---- Step 3: Models ---
+# Set options(ml_forecast_verbose = TRUE) before sourcing to enable debug output
+verbose <- getOption("ml_forecast_verbose", default = FALSE)
 
-  [Residential models]
-  Loading cached residential models ...
-  ✅ loaded: lgb_land_delta_cv (lgb_land_delta_cv_20260919_223622.rds)
-  ✅ loaded: dv_land_delta (dv_land_delta_20260919_223622.rds)
-  ✅ loaded: lgb_impr_delta_cv (lgb_impr_delta_cv_20260919_224545.rds)
-  ✅ loaded: dv_impr_delta (dv_impr_delta_20260919_224545.rds)
-  ✅ loaded: lgb_impr_level_cv (lgb_impr_level_cv_20260919_224545.rds)
-  ✅ loaded: dv_impr_level (dv_impr_level_20260919_224545.rds)
-  ✅ loaded: lgb_land_level_cv (lgb_land_level_cv_20260919_223622.rds)
-  ✅ loaded: dv_land_level (dv_land_level_20260919_223622.rds)
-  ✅ loaded training frame: model_data_land_delta_model
-  ✅ loaded training frame: model_data_land_model
-  ✅ loaded training frame: model_data_impr_delta_model
-  ✅ loaded training frame: model_data_impr_level_model
+# =========================================================================
+# 0) Prediction helpers
+# =========================================================================
 
-  [Commercial subgroup models]
+# Safely expand newdata through a caret dummyVars object, matching training
+# factor levels and column types exactly.
+safe_predict_dummyvars <- function(dv, newdata, train_df, seed_n = 100) {
+  response  <- all.vars(dv$form)[1]
+  term_vars <- setdiff(all.vars(dv$terms), response)
 
-  --- Subgroup: Apartment (apt) ---
-  Loading cached Apartment models ...
-  ✅ loaded: lgb_apt_land_delta_cv (lgb_apt_land_delta_cv.rds)
-  ✅ loaded: dv_apt_land_delta (dv_apt_land_delta.rds)
-  ✅ loaded: lgb_apt_land_level_cv (lgb_apt_land_level_cv.rds)
-  ✅ loaded: dv_apt_land_level (dv_apt_land_level.rds)
-  ✅ loaded: lgb_apt_impr_delta_cv (lgb_apt_impr_delta_cv.rds)
-  ✅ loaded: dv_apt_impr_delta (dv_apt_impr_delta.rds)
-  ✅ loaded: lgb_apt_impr_level_cv (lgb_apt_impr_level_cv.rds)
-  ✅ loaded: dv_apt_impr_level (dv_apt_impr_level.rds)
-  ✅ loaded training frame: model_data_apt_land_delta
-  ✅ loaded training frame: model_data_apt_land_level
-  ✅ loaded training frame: model_data_apt_impr_delta
-  ✅ loaded training frame: model_data_apt_impr_level
+  nd <- as.data.frame(newdata)
+  for (m in setdiff(term_vars, names(nd))) nd[[m]] <- NA
 
-  --- Subgroup: Major Office (office) ---
-  Loading cached Major Office models ...
-  ✅ loaded: lgb_office_land_delta_cv (lgb_office_land_delta_cv.rds)
-  ✅ loaded: dv_office_land_delta (dv_office_land_delta.rds)
-  ✅ loaded: lgb_office_land_level_cv (lgb_office_land_level_cv.rds)
-  ✅ loaded: dv_office_land_level (dv_office_land_level.rds)
-  ✅ loaded: lgb_office_impr_delta_cv (lgb_office_impr_delta_cv.rds)
-  ✅ loaded: dv_office_impr_delta (dv_office_impr_delta.rds)
-  ✅ loaded: lgb_office_impr_level_cv (lgb_office_impr_level_cv.rds)
-  ✅ loaded: dv_office_impr_level (dv_office_impr_level.rds)
-  ✅ loaded training frame: model_data_office_land_delta
-  ✅ loaded training frame: model_data_office_land_level
-  ✅ loaded training frame: model_data_office_impr_delta
-  ✅ loaded training frame: model_data_office_impr_level
+  # Small seed from training data anchors factor levels for predict.dummyVars
+  seed_n  <- min(seed_n, nrow(train_df))
+  seed_df <- as.data.frame(train_df[sample.int(nrow(train_df), seed_n),
+                                    term_vars, drop = FALSE])
 
-  --- Subgroup: Industrial (industrial) ---
-  Loading cached Industrial models ...
-  ✅ loaded: lgb_industrial_land_delta_cv (lgb_industrial_land_delta_cv.rds)
-  ✅ loaded: dv_industrial_land_delta (dv_industrial_land_delta.rds)
-  ✅ loaded: lgb_industrial_land_level_cv (lgb_industrial_land_level_cv.rds)
-  ✅ loaded: dv_industrial_land_level (dv_industrial_land_level.rds)
-  ✅ loaded: lgb_industrial_impr_delta_cv (lgb_industrial_impr_delta_cv.rds)
-  ✅ loaded: dv_industrial_impr_delta (dv_industrial_impr_delta.rds)
-  ✅ loaded: lgb_industrial_impr_level_cv (lgb_industrial_impr_level_cv.rds)
-  ✅ loaded: dv_industrial_impr_level (dv_industrial_impr_level.rds)
-  ✅ loaded training frame: model_data_industrial_land_delta
-  ✅ loaded training frame: model_data_industrial_land_level
-  ✅ loaded training frame: model_data_industrial_impr_delta
-  ✅ loaded training frame: model_data_industrial_impr_level
+  # Enforce stored factor levels
+  if (!is.null(dv$lvls)) {
+    for (v in intersect(names(dv$lvls), term_vars)) {
+      lvls         <- dv$lvls[[v]]
+      nd[[v]]      <- factor(as.character(nd[[v]]),      levels = lvls)
+      seed_df[[v]] <- factor(as.character(seed_df[[v]]), levels = lvls)
+    }
+  }
 
-  --- Subgroup: Retail (retail) ---
-  Loading cached Retail models ...
-  ✅ loaded: lgb_retail_land_delta_cv (lgb_retail_land_delta_cv.rds)
-  ✅ loaded: dv_retail_land_delta (dv_retail_land_delta.rds)
-  ✅ loaded: lgb_retail_land_level_cv (lgb_retail_land_level_cv.rds)
-  ✅ loaded: dv_retail_land_level (dv_retail_land_level.rds)
-  ✅ loaded: lgb_retail_impr_delta_cv (lgb_retail_impr_delta_cv.rds)
-  ✅ loaded: dv_retail_impr_delta (dv_retail_impr_delta.rds)
-  ✅ loaded: lgb_retail_impr_level_cv (lgb_retail_impr_level_cv.rds)
-  ✅ loaded: dv_retail_impr_level (dv_retail_impr_level.rds)
-  ✅ loaded training frame: model_data_retail_land_delta
-  ✅ loaded training frame: model_data_retail_land_level
-  ✅ loaded training frame: model_data_retail_impr_delta
-  ✅ loaded training frame: model_data_retail_impr_level
+  # Coerce types to match training data
+  for (v in intersect(term_vars, names(train_df))) {
+    tr <- train_df[[v]]
+    if (is.numeric(tr) || is.integer(tr)) {
+      nd[[v]]      <- as.numeric(nd[[v]])
+      seed_df[[v]] <- as.numeric(seed_df[[v]])
+    } else if (is.logical(tr)) {
+      nd[[v]]      <- as.logical(nd[[v]])
+      seed_df[[v]] <- as.logical(seed_df[[v]])
+      # ensure seed has both levels so dummyVars doesn't collapse the column
+      if (length(unique(na.omit(seed_df[[v]]))) < 2)
+        seed_df[[v]][1] <- !isTRUE(seed_df[[v]][1])
+    } else if (is.factor(tr)) {
+      nd[[v]]      <- factor(as.character(nd[[v]]),      levels = levels(tr))
+      seed_df[[v]] <- factor(as.character(seed_df[[v]]), levels = levels(tr))
+    } else {
+      lvls         <- sort(unique(as.character(tr)))
+      nd[[v]]      <- factor(as.character(nd[[v]]),      levels = lvls)
+      seed_df[[v]] <- factor(as.character(seed_df[[v]]), levels = lvls)
+    }
+  }
 
-  --- Subgroup: Hospitality (hospitality) ---
-  Loading cached Hospitality models ...
-  ✅ loaded: lgb_hospitality_land_delta_cv (lgb_hospitality_land_delta_cv.rds)
-  ✅ loaded: dv_hospitality_land_delta (dv_hospitality_land_delta.rds)
-  ✅ loaded: lgb_hospitality_land_level_cv (lgb_hospitality_land_level_cv.rds)
-  ✅ loaded: dv_hospitality_land_level (dv_hospitality_land_level.rds)
-  ✅ loaded: lgb_hospitality_impr_delta_cv (lgb_hospitality_impr_delta_cv.rds)
-  ✅ loaded: dv_hospitality_impr_delta (dv_hospitality_impr_delta.rds)
-  ✅ loaded: lgb_hospitality_impr_level_cv (lgb_hospitality_impr_level_cv.rds)
-  ✅ loaded: dv_hospitality_impr_level (dv_hospitality_impr_level.rds)
-  ✅ loaded training frame: model_data_hospitality_land_delta
-  ✅ loaded training frame: model_data_hospitality_land_level
-  ✅ loaded training frame: model_data_hospitality_impr_delta
-  ✅ loaded training frame: model_data_hospitality_impr_level
+  nd      <- nd[,      term_vars, drop = FALSE]
+  seed_df <- seed_df[, term_vars, drop = FALSE]
 
-  --- Subgroup: Medical (medical) ---
-  Loading cached Medical models ...
-  ✅ loaded: lgb_medical_land_delta_cv (lgb_medical_land_delta_cv.rds)
-  ✅ loaded: dv_medical_land_delta (dv_medical_land_delta.rds)
-  ✅ loaded: lgb_medical_land_level_cv (lgb_medical_land_level_cv.rds)
-  ✅ loaded: dv_medical_land_level (dv_medical_land_level.rds)
-  ✅ loaded: lgb_medical_impr_delta_cv (lgb_medical_impr_delta_cv.rds)
-  ✅ loaded: dv_medical_impr_delta (dv_medical_impr_delta.rds)
-  ✅ loaded: lgb_medical_impr_level_cv (lgb_medical_impr_level_cv.rds)
-  ✅ loaded: dv_medical_impr_level (dv_medical_impr_level.rds)
-  ✅ loaded training frame: model_data_medical_land_delta
-  ✅ loaded training frame: model_data_medical_land_level
-  ✅ loaded training frame: model_data_medical_impr_delta
-  ✅ loaded training frame: model_data_medical_impr_level
+  # predict.dummyVars checks for ALL formula variables including the response.
+  # Add a dummy response column (value irrelevant — only predictors are encoded).
+  nd[[response]]      <- NA_real_
+  seed_df[[response]] <- NA_real_
 
-  [Condo models]
-  Loading cached condo models ...
-  ✅ loaded: lgb_condo_land_delta_cv (lgb_condo_land_delta_cv_20260919_230459.rds)
-  ✅ loaded: dv_condo_land_delta (dv_condo_land_delta_20260919_230459.rds)
-  ✅ loaded: lgb_condo_land_level_cv (lgb_condo_land_level_cv_20260919_230459.rds)
-  ✅ loaded: dv_condo_land_level (dv_condo_land_level_20260919_230459.rds)
-  ✅ loaded: lgb_condo_impr_delta_cv (lgb_condo_impr_delta_cv_20260919_231257.rds)
-  ✅ loaded: dv_condo_impr_delta (dv_condo_impr_delta_20260919_231257.rds)
-  ✅ loaded: lgb_condo_impr_level_cv (lgb_condo_impr_level_cv_20260919_231257.rds)
-  ✅ loaded: dv_condo_impr_level (dv_condo_impr_level_20260919_231257.rds)
-  ✅ loaded training frame: model_data_condo_land_delta
-  ✅ loaded training frame: model_data_condo_land_level
-  ✅ loaded training frame: model_data_condo_impr_delta
-  ✅ loaded training frame: model_data_condo_impr_level
-  🧹 freed: model_data_land_delta_model, model_data_land_model, model_data_impr_delta_model, model_data_impr_level_model, model_data_condo_land_delta, model_data_condo_land_level, model_data_condo_impr_delta, model_data_condo_impr_level  (6772.7 MB)
+  mm <- predict(dv, newdata = rbind(seed_df, nd))
+  mm[(seed_n + 1):(seed_n + nrow(nd)), , drop = FALSE]
+}
 
---- Step 5b: Extend panel 2027-2031 (scenario = baseline) ---
-  forecast_only=TRUE — loading cached extended panels ...
-  ✅ loaded extended panel (res): panel_tbl_2027_2031_inputs_baseline_res.rds
-  ✅ loaded extended panel (apt): panel_tbl_2027_2031_inputs_baseline_apt.rds
-  ✅ loaded extended panel (office): panel_tbl_2027_2031_inputs_baseline_office.rds
-  ✅ loaded extended panel (industrial): panel_tbl_2027_2031_inputs_baseline_industrial.rds
-  ✅ loaded extended panel (retail): panel_tbl_2027_2031_inputs_baseline_retail.rds
-  ✅ loaded extended panel (hospitality): panel_tbl_2027_2031_inputs_baseline_hospitality.rds
-  ✅ loaded extended panel (medical): panel_tbl_2027_2031_inputs_baseline_medical.rds
-  ✅ loaded extended panel (com_other): panel_tbl_2027_2031_inputs_baseline_com_other.rds
-  ✅ loaded extended panel (condo): panel_tbl_2027_2031_inputs_baseline_condo.rds
 
---- Step 6: Sequential forecast 2027-2031 ---
-  [Residential forecast]
-✅ loaded: model_data_land_delta_model
-✅ loaded: model_data_impr_delta_model
+# Predict from a LightGBM + dummyVars pair.
+predict_lgbm_safe <- function(lgb_model, dv, feature_names,
+                               newdata, train_df, seed_n = 2000) {
+  mm <- safe_predict_dummyvars(dv, newdata, train_df, seed_n = seed_n)
+  mm <- as.matrix(mm)
 
-============================================================
-SCENARIO: BASELINE
-============================================================
-History max year: 2026 | Forecasting: 2027, 2028, 2029, 2030, 2031
+  if (ncol(mm) == 0) {
+    warning("dummyVars produced 0 columns — returning NA.")
+    return(rep(NA_real_, nrow(mm)))
+  }
 
---- tax_yr = 2027 ---
-  rows=166313 | land_NA=166313 | impr_NA=166313
-  actuals anchor (2027): land=136363 | impr=131669 rows across 24 areas; unmatched rows fall back to ML
-  land: 29950 rows predicted
-  impr: 28848 rows predicted
-  land-only: 5,796 of 166,313 parcels have land but no improvement history through 2026 - improvements treated as 0 in totals
-  land-only: 5796 rows set to 0 improvements
-  total NA=0
+  # Pad columns the model expects but dummyVars didn't produce
+  missing_cols <- setdiff(feature_names, colnames(mm))
+  if (length(missing_cols) > 0) {
+    mm <- cbind(mm, matrix(0, nrow(mm), length(missing_cols),
+                           dimnames = list(NULL, missing_cols)))
+  }
+  mm <- mm[, feature_names, drop = FALSE]
 
---- tax_yr = 2028 ---
-  rows=166313 | land_NA=166313 | impr_NA=166313
-  land: 166313 rows predicted
-  impr: 160517 rows predicted
-  land-only: 5796 rows set to 0 improvements
-  total NA=0
+  if (verbose) {
+    message("  matrix: ", nrow(mm), " x ", ncol(mm),
+            " | padded: ", length(missing_cols),
+            " | NA rate: ", round(mean(is.na(mm)), 4))
+  }
 
---- tax_yr = 2029 ---
-  rows=166313 | land_NA=166313 | impr_NA=166313
-  land: 166313 rows predicted
-  impr: 160517 rows predicted
-  land-only: 5796 rows set to 0 improvements
-  total NA=0
+  preds <- as.numeric(predict(lgb_model, mm))
 
---- tax_yr = 2030 ---
-  rows=166313 | land_NA=166313 | impr_NA=166313
-  land: 166313 rows predicted
-  impr: 160517 rows predicted
-  land-only: 5796 rows set to 0 improvements
-  total NA=0
+  if (length(preds) != nrow(mm)) {
+    warning("LightGBM returned ", length(preds), " preds for ",
+            nrow(mm), " rows — returning NA.")
+    return(rep(NA_real_, nrow(mm)))
+  }
+  preds
+}
 
---- tax_yr = 2031 ---
-  rows=166313 | land_NA=166313 | impr_NA=166313
-  land: 166313 rows predicted
-  impr: 160517 rows predicted
-  land-only: 5796 rows set to 0 improvements
-  total NA=0
-# A tibble: 5 × 9
-  tax_yr      n land_actual land_delta land_na impr_actual impr_delta impr_na scenario
-   <dbl>  <int>       <int>      <int>   <int>       <int>      <int>   <int> <chr>   
-1   2027 166313      136363      29950       0      131669      28848       0 baseline
-2   2028 166313           0     166313       0           0     160517       0 baseline
-3   2029 166313           0     166313       0           0     160517       0 baseline
-4   2030 166313           0     166313       0           0     160517       0 baseline
-5   2031 166313           0     166313       0           0     160517       0 baseline
-💾 cached: panel_tbl_2006_2031_forecasted_baseline_res.rds
-💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_res.parquet
 
---- Method counts, all scenarios ---
-# A tibble: 5 × 9
-  tax_yr      n land_actual land_delta land_na impr_actual impr_delta impr_na scenario
-   <dbl>  <int>       <int>      <int>   <int>       <int>      <int>   <int> <chr>   
-1   2027 166313      136363      29950       0      131669      28848       0 baseline
-2   2028 166313           0     166313       0           0     160517       0 baseline
-3   2029 166313           0     166313       0           0     160517       0 baseline
-4   2030 166313           0     166313       0           0     160517       0 baseline
-5   2031 166313           0     166313       0           0     160517       0 baseline
+# Predict in chunks to manage memory on large panels.
+predict_in_chunks <- function(pred_fn, newdata, chunk_size = 50000) {
+  n   <- nrow(newdata)
+  out <- rep(NA_real_, n)
+  idx <- split(seq_len(n), ceiling(seq_len(n) / chunk_size))
+  for (i in seq_along(idx)) {
+    if (verbose) message("  chunk ", i, "/", length(idx))
+    out[idx[[i]]] <- pred_fn(newdata[idx[[i]], , drop = FALSE])
+    gc()
+  }
+  out
+}
 
-06_forecast_av_2026_2031_sequential.R complete (scenario = baseline).
 
-  [Apartment forecast (apt)]
-    detrended cs_apt_demand_units -> cs_apt_demand_units_yoy
-    detrended cs_apt_inventory_units -> cs_apt_inventory_units_yoy
-    CoStar: joined 45 cs_apt_* features (237,760/237,760 rows matched)
-    coalesced 12 suffixed feature columns
-  delta cap: predicted per-year dlog clamped to +/- 0.405
-  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 309 of 7,430 parcels have land but no improvement history through 2026 - improvements held at 0
-    note: 364 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    specialty regional rates (TY2027): 5,711 parcels | TY2026 AV $37.03B
-      spec 100  R1 Central / North  -8.36% |     5,070 parcels | TY2026 AV $35.05B
-      spec 100  R2 South          -10.09% |       641 parcels | TY2026 AV $1.98B
-      no parcels matched: spec 100 R3 East
-      -> rule 2 (headline): 0 with no SpecSubArea (TY2026 AV $0.00B) | 1 whose SpecSubArea is not listed (TY2026 AV $0.00B)
-    specialty headline rates (TY2027): 1 parcels | TY2026 AV $0.00B
-      of which fell through from a regional report: 1 of 1 parcels | TY2026 AV $0.00B
-    rule 3 (specialty_actuals_policy = 'model') (TY2027): 1,055 parcels | TY2026 AV $4.54B
-      left to model=1055
-    rate source spec_region_report     | specialty=TRUE  |     5,711 parcels | prior AV $37.03B
-    rate source model                  | specialty=TRUE  |     1,055 parcels | prior AV $4.54B
-    rate source geo_report             | specialty=FALSE |       656 parcels | prior AV $1.48B
-    rate source model                  | specialty=FALSE |         7 parcels | prior AV $0.03B
-    rate source specialty_report       | specialty=TRUE  |         1 parcels | prior AV $0.00B
-    Year 2027: 7430 parcels scored.
-      land-only: 309 parcel(s) held at 0 improvements
-  Forecasting year: 2028
-    rule 3 (specialty_actuals_policy = 'model') (TY2028): 6,767 parcels | TY2027 AV $38.59B
-      left to model=6767
-    rate source model                  | specialty=TRUE  |     6,767 parcels | prior AV $38.59B
-    rate source model                  | specialty=FALSE |       663 parcels | prior AV $1.49B
-    Year 2028: 7430 parcels scored.
-      land-only: 309 parcel(s) held at 0 improvements
-  Forecasting year: 2029
-    rule 3 (specialty_actuals_policy = 'model') (TY2029): 6,767 parcels | TY2028 AV $37.78B
-      left to model=6767
-    rate source model                  | specialty=TRUE  |     6,767 parcels | prior AV $37.78B
-    rate source model                  | specialty=FALSE |       663 parcels | prior AV $1.49B
-    Year 2029: 7430 parcels scored.
-      land-only: 309 parcel(s) held at 0 improvements
-  Forecasting year: 2030
-    rule 3 (specialty_actuals_policy = 'model') (TY2030): 6,767 parcels | TY2029 AV $37.53B
-      left to model=6767
-    rate source model                  | specialty=TRUE  |     6,767 parcels | prior AV $37.53B
-    rate source model                  | specialty=FALSE |       663 parcels | prior AV $1.49B
-    Year 2030: 7430 parcels scored.
-      land-only: 309 parcel(s) held at 0 improvements
-  Forecasting year: 2031
-    rule 3 (specialty_actuals_policy = 'model') (TY2031): 6,767 parcels | TY2030 AV $37.59B
-      left to model=6767
-    rate source model                  | specialty=TRUE  |     6,767 parcels | prior AV $37.59B
-    rate source model                  | specialty=FALSE |       663 parcels | prior AV $1.50B
-    Year 2031: 7430 parcels scored.
-      land-only: 309 parcel(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+# Align panel column types to a training data frame for a given set of columns.
+align_to_train <- function(panel_dt, train_df, cols) {
+  for (cn in intersect(cols, intersect(names(train_df), names(panel_dt)))) {
+    tr <- train_df[[cn]]
+    if (is.factor(tr)) {
+      panel_dt[, (cn) := factor(as.character(get(cn)), levels = levels(tr))]
+    } else if (is.numeric(tr)) {
+      panel_dt[, (cn) := as.numeric(get(cn))]
+    } else if (is.logical(tr)) {
+      panel_dt[, (cn) := toupper(trimws(as.character(get(cn)))) %in%
+                          c("Y", "YES", "TRUE", "1")]
+    } else {
+      panel_dt[, (cn) := as.character(get(cn))]
+    }
+  }
+  panel_dt
+}
 
-06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_apt.rds
-  🧹 freed: panel_tbl_forecasted_com  (483.2 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_apt  (1414.2 MB)
-  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
-  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
-  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
-  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
-  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
 
-  [Major Office forecast (office)]
-    CoStar: joined 39 cs_off_* features (50,496/50,496 rows matched)
-    coalesced 12 suffixed feature columns
-  delta cap: predicted per-year dlog clamped to +/- 0.405
-  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 45 of 1,578 parcels have land but no improvement history through 2026 - improvements held at 0
-    note: 104 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
-      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
-    specialty headline rates (TY2027): 47 parcels | TY2026 AV $2.16B
-    rule 3 (specialty_actuals_policy = 'model') (TY2027): 269 parcels | TY2026 AV $14.22B
-      left to model=269
-    rate source model                  | specialty=TRUE  |       269 parcels | prior AV $14.22B
-    rate source geo_report             | specialty=FALSE |     1,211 parcels | prior AV $6.05B
-    rate source specialty_report       | specialty=TRUE  |        47 parcels | prior AV $2.16B
-    rate source model                  | specialty=FALSE |        51 parcels | prior AV $0.37B
-    Year 2027: 1578 parcels scored.
-      land-only: 45 parcel(s) held at 0 improvements
-  Forecasting year: 2028
-    rule 3 (specialty_actuals_policy = 'model') (TY2028): 316 parcels | TY2027 AV $14.74B
-      left to model=316
-    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $14.74B
-    rate source model                  | specialty=FALSE |     1,262 parcels | prior AV $5.76B
-    Year 2028: 1578 parcels scored.
-      land-only: 45 parcel(s) held at 0 improvements
-  Forecasting year: 2029
-    rule 3 (specialty_actuals_policy = 'model') (TY2029): 316 parcels | TY2028 AV $13.84B
-      left to model=316
-    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $13.84B
-    rate source model                  | specialty=FALSE |     1,262 parcels | prior AV $5.69B
-    Year 2029: 1578 parcels scored.
-      land-only: 45 parcel(s) held at 0 improvements
-  Forecasting year: 2030
-    rule 3 (specialty_actuals_policy = 'model') (TY2030): 316 parcels | TY2029 AV $13.34B
-      left to model=316
-    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $13.34B
-    rate source model                  | specialty=FALSE |     1,262 parcels | prior AV $5.66B
-    Year 2030: 1578 parcels scored.
-      land-only: 45 parcel(s) held at 0 improvements
-  Forecasting year: 2031
-    rule 3 (specialty_actuals_policy = 'model') (TY2031): 316 parcels | TY2030 AV $13.09B
-      left to model=316
-    rate source model                  | specialty=TRUE  |       316 parcels | prior AV $13.09B
-    rate source model                  | specialty=FALSE |     1,262 parcels | prior AV $5.64B
-    Year 2031: 1578 parcels scored.
-      land-only: 45 parcel(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+# Median-impute numeric NAs; coerce factor NAs to "Unknown" for dv term vars.
+impute_for_prediction <- function(newdata, train_df, dv) {
+  term_vars <- intersect(all.vars(dv$terms), names(newdata))
+  if (length(term_vars) == 0) return(newdata)
+  for (cn in term_vars) {
+    if (!cn %in% names(train_df)) next
+    tr <- train_df[[cn]]
+    if (is.numeric(tr)) {
+      newdata[[cn]][is.na(newdata[[cn]])] <- median(tr, na.rm = TRUE)
+    } else if (is.factor(tr)) {
+      newdata[[cn]] <- factor(as.character(newdata[[cn]]), levels = levels(tr))
+      newdata[[cn]] <- forcats::fct_explicit_na(newdata[[cn]], na_level = "Unknown")
+    }
+  }
+  newdata
+}
 
-06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_office.rds
-  🧹 freed: panel_tbl_forecasted_com  (100.4 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_office  (293.7 MB)
-  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
-  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
-  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
-  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
-  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
 
-  [Industrial forecast (industrial)]
-    CoStar: joined 39 cs_ind_* features (92,640/92,640 rows matched)
-    coalesced 12 suffixed feature columns
-  delta cap: predicted per-year dlog clamped to +/- 0.405
-  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 96 of 2,895 parcels have land but no improvement history through 2026 - improvements held at 0
-    note: 393 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
-      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
-    specialty headline rates (TY2027): 11 parcels | TY2026 AV $0.24B
-    rule 3 (specialty_actuals_policy = 'model') (TY2027): 286 parcels | TY2026 AV $3.84B
-      left to model=286
-    rate source geo_report             | specialty=FALSE |     2,494 parcels | prior AV $8.70B
-    rate source model                  | specialty=TRUE  |       286 parcels | prior AV $3.84B
-    rate source model                  | specialty=FALSE |       104 parcels | prior AV $0.65B
-    rate source specialty_report       | specialty=TRUE  |        11 parcels | prior AV $0.24B
-    Year 2027: 2895 parcels scored.
-      land-only: 96 parcel(s) held at 0 improvements
-  Forecasting year: 2028
-    rule 3 (specialty_actuals_policy = 'model') (TY2028): 297 parcels | TY2027 AV $4.09B
-      left to model=297
-    rate source model                  | specialty=FALSE |     2,598 parcels | prior AV $9.37B
-    rate source model                  | specialty=TRUE  |       297 parcels | prior AV $4.09B
-    Year 2028: 2895 parcels scored.
-      land-only: 96 parcel(s) held at 0 improvements
-  Forecasting year: 2029
-    rule 3 (specialty_actuals_policy = 'model') (TY2029): 297 parcels | TY2028 AV $4.12B
-      left to model=297
-    rate source model                  | specialty=FALSE |     2,598 parcels | prior AV $9.54B
-    rate source model                  | specialty=TRUE  |       297 parcels | prior AV $4.12B
-    Year 2029: 2895 parcels scored.
-      land-only: 96 parcel(s) held at 0 improvements
-  Forecasting year: 2030
-    rule 3 (specialty_actuals_policy = 'model') (TY2030): 297 parcels | TY2029 AV $4.18B
-      left to model=297
-    rate source model                  | specialty=FALSE |     2,598 parcels | prior AV $9.80B
-    rate source model                  | specialty=TRUE  |       297 parcels | prior AV $4.18B
-    Year 2030: 2895 parcels scored.
-      land-only: 96 parcel(s) held at 0 improvements
-  Forecasting year: 2031
-    rule 3 (specialty_actuals_policy = 'model') (TY2031): 297 parcels | TY2030 AV $4.26B
-      left to model=297
-    rate source model                  | specialty=FALSE |     2,598 parcels | prior AV $10.12B
-    rate source model                  | specialty=TRUE  |       297 parcels | prior AV $4.26B
-    Year 2031: 2895 parcels scored.
-      land-only: 96 parcel(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+# Drop predictors with <2 stored factor levels from a dummyVars object.
+drop_single_level_dv_vars <- function(dv) {
+  if (is.null(dv$lvls)) return(dv)
+  bad <- names(dv$lvls)[sapply(dv$lvls, length) < 2]
+  if (length(bad) == 0) return(dv)
+  message("  Dropping dv vars with <2 levels: ", paste(bad, collapse = ", "))
+  dv$vars <- setdiff(unlist(dv$vars, use.names = FALSE), bad)
+  dv$lvls[bad] <- NULL
+  if (!is.null(dv$facVars)) dv$facVars <- setdiff(dv$facVars, bad)
+  dv
+}
 
-06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_industrial.rds
-  🧹 freed: panel_tbl_forecasted_com  (184.1 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_industrial  (538.6 MB)
-  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
-  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
-  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
-  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
-  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+# =========================================================================
+# 1) Load cached object to .GlobalEnv if not already present
+# =========================================================================
+load_cache_if_missing <- function(obj_name, path) {
+  if (exists(obj_name, envir = .GlobalEnv)) return(invisible(NULL))
+  if (!file.exists(path)) stop("Missing cache: ", path)
+  assign(obj_name, readRDS(path), envir = .GlobalEnv)
+  message("✅ loaded: ", obj_name)
+}
 
-  [Retail forecast (retail)]
-    CoStar: joined 38 cs_ret_* features (52,312/64,384 rows matched)
-    coalesced 12 suffixed feature columns
-  delta cap: predicted per-year dlog clamped to +/- 0.405
-  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 41 of 2,012 parcels have land but no improvement history through 2026 - improvements held at 0
-    note: 186 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
-      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
-    specialty headline rates (TY2027): 90 parcels | TY2026 AV $2.07B
-    rate source geo_report             | specialty=FALSE |     1,912 parcels | prior AV $6.00B
-    rate source specialty_report       | specialty=TRUE  |        90 parcels | prior AV $2.07B
-    rate source model                  | specialty=FALSE |        10 parcels | prior AV $0.07B
-    Year 2027: 2012 parcels scored.
-      land-only: 41 parcel(s) held at 0 improvements
-  Forecasting year: 2028
-    rule 3 (specialty_actuals_policy = 'model') (TY2028): 90 parcels | TY2027 AV $2.08B
-      left to model=90
-    rate source model                  | specialty=FALSE |     1,922 parcels | prior AV $6.12B
-    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.08B
-    Year 2028: 2012 parcels scored.
-      land-only: 41 parcel(s) held at 0 improvements
-  Forecasting year: 2029
-    rule 3 (specialty_actuals_policy = 'model') (TY2029): 90 parcels | TY2028 AV $2.12B
-      left to model=90
-    rate source model                  | specialty=FALSE |     1,922 parcels | prior AV $6.27B
-    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.12B
-    Year 2029: 2012 parcels scored.
-      land-only: 41 parcel(s) held at 0 improvements
-  Forecasting year: 2030
-    rule 3 (specialty_actuals_policy = 'model') (TY2030): 90 parcels | TY2029 AV $2.14B
-      left to model=90
-    rate source model                  | specialty=FALSE |     1,922 parcels | prior AV $6.38B
-    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.14B
-    Year 2030: 2012 parcels scored.
-      land-only: 41 parcel(s) held at 0 improvements
-  Forecasting year: 2031
-    rule 3 (specialty_actuals_policy = 'model') (TY2031): 90 parcels | TY2030 AV $2.16B
-      left to model=90
-    rate source model                  | specialty=FALSE |     1,922 parcels | prior AV $6.52B
-    rate source model                  | specialty=TRUE  |        90 parcels | prior AV $2.16B
-    Year 2031: 2012 parcels scored.
-      land-only: 41 parcel(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+# =========================================================================
+# 2) Load delta models + training frames (once, shared across scenarios)
+# =========================================================================
+latest_model_file <- function(prefix, dir = model_dir) {
+  files <- list.files(dir,
+                      pattern    = paste0("^", prefix, "(_|\\.).*\\.rds$"),
+                      full.names = TRUE)
+  if (length(files) == 0) return(NULL)
+  files[which.max(file.info(files)$mtime)]
+}
 
-06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_retail.rds
-  🧹 freed: panel_tbl_forecasted_com  (127.5 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_retail  (372.9 MB)
-  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
-  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
-  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
-  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
-  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+load_model <- function(obj_name, prefix) {
+  if (exists(obj_name, envir = .GlobalEnv)) return(invisible(NULL))
+  f <- latest_model_file(prefix)
+  if (is.null(f)) stop("No model file found for: ", obj_name,
+                       "\nRun with model_replicate=TRUE to train models.")
+  assign(obj_name, readRDS(f), envir = .GlobalEnv)
+  message("✅ loaded: ", obj_name, " (", basename(f), ")")
+}
 
-  [Hospitality forecast (hospitality)]
-    CoStar: joined 38 cs_hosp_* features (38,048/38,048 rows matched)
-    coalesced 12 suffixed feature columns
-  delta cap: predicted per-year dlog clamped to +/- 0.405
-  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 19 of 1,189 parcels have land but no improvement history through 2026 - improvements held at 0
-    note: 30 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
-      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
-    specialty headline rates (TY2027): 50 parcels | TY2026 AV $0.18B
-    rule 3 (specialty_actuals_policy = 'model') (TY2027): 122 parcels | TY2026 AV $4.34B
-      left to model=122
-    rate source model                  | specialty=TRUE  |       122 parcels | prior AV $4.34B
-    rate source geo_report             | specialty=FALSE |       998 parcels | prior AV $1.84B
-    rate source specialty_report       | specialty=TRUE  |        50 parcels | prior AV $0.18B
-    rate source model                  | specialty=FALSE |        19 parcels | prior AV $0.13B
-    Year 2027: 1189 parcels scored.
-      land-only: 19 parcel(s) held at 0 improvements
-  Forecasting year: 2028
-    rule 3 (specialty_actuals_policy = 'model') (TY2028): 172 parcels | TY2027 AV $4.35B
-      left to model=172
-    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.35B
-    rate source model                  | specialty=FALSE |     1,017 parcels | prior AV $1.88B
-    Year 2028: 1189 parcels scored.
-      land-only: 19 parcel(s) held at 0 improvements
-  Forecasting year: 2029
-    rule 3 (specialty_actuals_policy = 'model') (TY2029): 172 parcels | TY2028 AV $4.22B
-      left to model=172
-    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.22B
-    rate source model                  | specialty=FALSE |     1,017 parcels | prior AV $1.92B
-    Year 2029: 1189 parcels scored.
-      land-only: 19 parcel(s) held at 0 improvements
-  Forecasting year: 2030
-    rule 3 (specialty_actuals_policy = 'model') (TY2030): 172 parcels | TY2029 AV $4.15B
-      left to model=172
-    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.15B
-    rate source model                  | specialty=FALSE |     1,017 parcels | prior AV $1.95B
-    Year 2030: 1189 parcels scored.
-      land-only: 19 parcel(s) held at 0 improvements
-  Forecasting year: 2031
-    rule 3 (specialty_actuals_policy = 'model') (TY2031): 172 parcels | TY2030 AV $4.16B
-      left to model=172
-    rate source model                  | specialty=TRUE  |       172 parcels | prior AV $4.16B
-    rate source model                  | specialty=FALSE |     1,017 parcels | prior AV $2.01B
-    Year 2031: 1189 parcels scored.
-      land-only: 19 parcel(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+load_model("lgb_land_delta_cv", "lgb_land_delta_cv")
+load_model("dv_land_delta",     "dv_land_delta")
+load_model("lgb_impr_delta_cv", "lgb_impr_delta_cv")
+load_model("dv_impr_delta",     "dv_impr_delta")
 
-06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_hospitality.rds
-  🧹 freed: panel_tbl_forecasted_com  (75.4 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_hospitality  (220.5 MB)
-  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
-  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
-  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
-  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
-  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+# Expose booster + feature aliases
+lgb_land_delta_model    <- lgb_land_delta_cv$model
+lgb_land_delta_features <- lgb_land_delta_cv$x_cols
+lgb_impr_delta_model    <- lgb_impr_delta_cv$model
+lgb_impr_delta_features <- lgb_impr_delta_cv$x_cols
 
-  [Medical forecast (medical)]
-    coalesced 12 suffixed feature columns
-  delta cap: predicted per-year dlog clamped to +/- 0.405
-  Forecasting commercial AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 9 of 258 parcels have land but no improvement history through 2026 - improvements held at 0
-    note: 33 parcel(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    specialty regional rates (TY2027): 0 parcels | TY2026 AV $0.00B
-      no parcels matched: spec 100 R1 Central / North, spec 100 R2 South, spec 100 R3 East
-    specialty headline rates (TY2027): 35 parcels | TY2026 AV $0.93B
-    rate source geo_report             | specialty=FALSE |       223 parcels | prior AV $1.14B
-    rate source specialty_report       | specialty=TRUE  |        35 parcels | prior AV $0.93B
-    Year 2027: 258 parcels scored.
-      land-only: 9 parcel(s) held at 0 improvements
-  Forecasting year: 2028
-    rule 3 (specialty_actuals_policy = 'model') (TY2028): 35 parcels | TY2027 AV $0.82B
-      left to model=35
-    rate source model                  | specialty=FALSE |       223 parcels | prior AV $1.14B
-    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.82B
-    Year 2028: 258 parcels scored.
-      land-only: 9 parcel(s) held at 0 improvements
-  Forecasting year: 2029
-    rule 3 (specialty_actuals_policy = 'model') (TY2029): 35 parcels | TY2028 AV $0.84B
-      left to model=35
-    rate source model                  | specialty=FALSE |       223 parcels | prior AV $1.18B
-    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.84B
-    Year 2029: 258 parcels scored.
-      land-only: 9 parcel(s) held at 0 improvements
-  Forecasting year: 2030
-    rule 3 (specialty_actuals_policy = 'model') (TY2030): 35 parcels | TY2029 AV $0.86B
-      left to model=35
-    rate source model                  | specialty=FALSE |       223 parcels | prior AV $1.23B
-    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.86B
-    Year 2030: 258 parcels scored.
-      land-only: 9 parcel(s) held at 0 improvements
-  Forecasting year: 2031
-    rule 3 (specialty_actuals_policy = 'model') (TY2031): 35 parcels | TY2030 AV $0.90B
-      left to model=35
-    rate source model                  | specialty=FALSE |       223 parcels | prior AV $1.29B
-    rate source model                  | specialty=TRUE  |        35 parcels | prior AV $0.90B
-    Year 2031: 258 parcels scored.
-      land-only: 9 parcel(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_com.parquet
+# Fix caret serialisation quirk + clean single-level vars
+for (.nm in c("dv_land_delta", "dv_impr_delta")) {
+  obj     <- get(.nm, envir = .GlobalEnv)
+  obj$sep <- ""
+  assign(.nm, drop_single_level_dv_vars(obj), envir = .GlobalEnv)
+}
 
-06_forecast_av_2026_2031_sequential_comm.R loaded (scenario = baseline)
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_medical.rds
-  🧹 freed: panel_tbl_forecasted_com  (14 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_medical  (40.8 MB)
-  🧹 freed: lgb_com_land_delta_cv, lgb_com_land_delta_model, lgb_com_land_delta_features  (0 MB)
-  🧹 freed: lgb_com_land_level_cv, lgb_com_land_level_model, lgb_com_land_level_features  (0 MB)
-  🧹 freed: lgb_com_impr_delta_cv, lgb_com_impr_delta_model, lgb_com_impr_delta_features  (0 MB)
-  🧹 freed: lgb_com_impr_level_cv, lgb_com_impr_level_model, lgb_com_impr_level_features  (0 MB)
-  🧹 freed: lgb_com_delta_cv, lgb_com_level_cv  (0 MB)
+# Training frames
+load_cache_if_missing("model_data_land_delta_model",
+                      file.path(cache_dir, "model_data_land_delta_model.rds"))
+load_cache_if_missing("model_data_impr_delta_model",
+                      file.path(cache_dir, "model_data_impr_delta_model.rds"))
 
-  [Commercial Other forecast]
-  ℹ️  No aggregate commercial models available — com_other uses residual growth
-Running xx_com_other_growth.R ...
-xx_com_other_growth.R loaded.
-  com_other method = com_weighted
-  ⚠️  residual rate exceeded ±15% in 4 year(s) — capped
-   tax_yr dlog_other              basis
-    <int>      <num>             <char>
-1:   2008  0.1507807 value_weighted_com
-2:   2016 -0.3426665 value_weighted_com
-3:   2017  0.1658617 value_weighted_com
-4:   2018  0.5365941 value_weighted_com
-  residual growth rate by year:
-   tax_yr   pct              basis
-    <int> <num>             <char>
-1:   2027  0.49 value_weighted_com
-2:   2028 -1.60 value_weighted_com
-3:   2029 -0.36 value_weighted_com
-4:   2030  0.58 value_weighted_com
-5:   2031  0.80 value_weighted_com
-  com_other base values: 2,762 land/imps | 0 total-only | 1,268 unusable
-  KCA geo actuals anchor 3,791 com_other parcel-years
+train_land_df <- model_data_land_delta_model
+train_impr_df <- model_data_impr_delta_model
 
-  --- com_other rate sources ---
-   tax_yr     co_rate_source parcels  av_B
-    <int>             <char>   <int> <num>
-1:   2027         geo_report    3791  5.32
-2:   2027 value_weighted_com     239  0.33
-3:   2028 value_weighted_com    4030  5.57
-4:   2029 value_weighted_com    4030  5.55
-5:   2030 value_weighted_com    4030  5.58
-6:   2031 value_weighted_com    4030  5.62
-  com_other residual: 2,762 parcels forecast into the horizon
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_com_other.rds
-  🧹 freed: panel_tbl_forecasted_com  (215.4 MB)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_com, panel_tbl_2006_2031_inputs_baseline_com, panel_tbl_2027_2031_inputs_baseline_com_other  (634.5 MB)
+# Predictor column sets (resolved against panel inside the loop)
+pred_cols_land_base <- setdiff(
+  names(train_land_df),
+  c("delta_log_land", "log_appr_land_val", "log_land_filled")
+)
+pred_cols_impr_base <- setdiff(
+  names(train_impr_df),
+  c("delta_log_impr", "log_appr_imps_val", "log_impr_filled")
+)
 
-  Combining commercial subgroup forecasts into panel_tbl_forecasted_com ...
-  💾 cached combined commercial forecast: 620,544 rows, 7 subgroups
-  [Condo forecast]
-  Loaded condo extended panel from cache.
-  Forecasting condo AV for years: 2027, 2028, 2029, 2030, 2031
-  land-only gate: 6 of 97,564 units have land but no improvement history through 2026 - improvements held at 0
-    note: 60,705 unit(s) have neither land nor improvement history - NOT gated, these need separate review
-  Forecasting year: 2027
-    Year 2027: 97564 units scored.
-      land-only: 6 unit(s) held at 0 improvements
-  Forecasting year: 2028
-    Year 2028: 97564 units scored.
-      land-only: 6 unit(s) held at 0 improvements
-  Forecasting year: 2029
-    Year 2029: 97564 units scored.
-      land-only: 6 unit(s) held at 0 improvements
-  Forecasting year: 2030
-    Year 2030: 97564 units scored.
-      land-only: 6 unit(s) held at 0 improvements
-  Forecasting year: 2031
-    Year 2031: 97564 units scored.
-      land-only: 6 unit(s) held at 0 improvements
-  💾 cached: panel_tbl_2006_2031_forecasted_baseline_condo.rds
-  💾 parquet: parcel_year_panel_2006_2031_forecasted_baseline_condo.parquet
+# =========================================================================
+# 3) Load extended panel for the current scenario
+# =========================================================================
+# main_ml.R saves the residential extended panel as:
+#   panel_tbl_2006_2031_inputs_<scenario>_res  (in GlobalEnv)
+# or on disk as:
+#   panel_tbl_2006_2031_inputs_<scenario>_res.rds
+ext_name       <- paste0("panel_tbl_2006_2031_inputs_", scenario, "_res")
+ext_cache      <- file.path(cache_dir, paste0(ext_name, ".rds"))
+ext_cache_nosuffix <- file.path(cache_dir,
+                                paste0("panel_tbl_2006_2031_inputs_", scenario, ".rds"))
 
-06_forecast_av_2026_2031_sequential_condo.R loaded (scenario = baseline)
-  🧹 freed: panel_tbl_2027_2031_inputs_baseline_res, panel_tbl_2027_2031_inputs_baseline_condo, panel_tbl_2006_2031_inputs_baseline_res  (19935.2 MB)
+if (exists(ext_name, envir = .GlobalEnv)) {
+  panel_all <- as.data.table(get(ext_name, envir = .GlobalEnv))
+} else if (file.exists(ext_cache)) {
+  panel_all <- as.data.table(readRDS(ext_cache))
+  message("Loaded residential extended panel from cache: ", basename(ext_cache))
+} else if (file.exists(ext_cache_nosuffix)) {
+  panel_all <- as.data.table(readRDS(ext_cache_nosuffix))
+  message("Loaded residential extended panel from legacy cache: ", basename(ext_cache_nosuffix))
+} else {
+  stop("Extended residential panel not found. Run 05_extend_panel_2026_2031.R first.")
+}
 
-==============================================
-run_main_ml() finished — elapsed: 26.3 min
-  prop_scope = all | scenario = baseline
-  commercial subgroups: apt, office, industrial, retail, hospitality, medical + other
-==============================================
-Warning messages:
-1: `fct_explicit_na()` was deprecated in forcats 1.0.0.
-ℹ Please use `fct_na_value_to_level()` instead.
-This warning is displayed once per session.
-Call lifecycle::last_lifecycle_warnings() to see where this warning was generated. 
-2: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
-  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
-3: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
-  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
-4: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
-  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
-5: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
-  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
-6: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),  :
-  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+# =========================================================================
+# 4) Forecast — single scenario pass
+# =========================================================================
+all_method_counts <- list()
+
+for (scenario_name in scenario) {  # single iteration — kept for structure
+
+  message("\n", strrep("=", 60))
+  message("SCENARIO: ", toupper(scenario_name))
+  message(strrep("=", 60))
+
+  # Drop data.table join shadow columns if any
+  shadow_cols <- grep("^i\\.", names(panel_all), value = TRUE)
+  if (length(shadow_cols) > 0) {
+    panel_all[, (shadow_cols) := NULL]
+    message("Dropped ", length(shadow_cols), " shadow columns (i.*)")
+  }
+
+  stopifnot(all(c("parcel_id", "tax_yr") %in% names(panel_all)))
+  setorder(panel_all, parcel_id, tax_yr)
+  setkey(panel_all, NULL)
+
+  # Determine history boundary and forecast range dynamically
+  hist_max_yr <- max(panel_all[!is.na(total_assessed_filled), tax_yr], na.rm = TRUE)
+  fcst_years  <- (hist_max_yr + 1):2031
+  message("History max year: ", hist_max_yr,
+          " | Forecasting: ", paste(fcst_years, collapse = ", "))
+
+  # ---- Seed log-scale columns -------------------------------------------
+  panel_all[, appr_land_val_filled := as.numeric(appr_land_val_filled)]
+  panel_all[, appr_imps_val_filled := as.numeric(appr_imps_val_filled)]
+
+  panel_all[, appr_land_val_base :=
+              fifelse(!is.na(appr_land_val_filled),
+                      appr_land_val_filled, appr_land_val)]
+  panel_all[, appr_imps_val_base :=
+              fifelse(!is.na(appr_imps_val_filled),
+                      appr_imps_val_filled, appr_imps_val)]
+
+  panel_all[, log_land_filled :=
+              fifelse(appr_land_val_base > 0, log(appr_land_val_base), NA_real_)]
+  panel_all[, log_impr_filled :=
+              fifelse(appr_imps_val_base > 0, log(appr_imps_val_base), NA_real_)]
+
+  panel_all[, land_method := fifelse(
+    tax_yr <= hist_max_yr & !is.na(log_land_filled), "observed", NA_character_)]
+  panel_all[, impr_method := fifelse(
+    tax_yr <= hist_max_yr & !is.na(log_impr_filled), "observed", NA_character_)]
+
+  # ---- Sequential forecast ----------------------------------------------
+  for (yr in fcst_years) {
+    message("\n--- tax_yr = ", yr, " ---")
+    idx_yr <- which(panel_all$tax_yr == yr)
+    if (length(idx_yr) == 0) { message("No rows — skipping."); next }
+
+    # Rebuild lags from the just-updated log columns (the recursive step)
+    panel_all[, log_land_filled_lag1 := shift(log_land_filled, 1L, type = "lag"),
+              by = parcel_id]
+    panel_all[, log_impr_filled_lag1 := shift(log_impr_filled, 1L, type = "lag"),
+              by = parcel_id]
+
+    # Lag aliases expected by the trained models
+    panel_all[, log_appr_land_val_lag1 := shift(log_land_filled, 1L, type = "lag"),
+              by = parcel_id]
+    panel_all[, log_appr_land_val_lag2 := shift(log_land_filled, 2L, type = "lag"),
+              by = parcel_id]
+    panel_all[, log_appr_imps_val_lag1 := shift(log_impr_filled, 1L, type = "lag"),
+              by = parcel_id]
+    panel_all[, log_appr_imps_val_lag2 := shift(log_impr_filled, 2L, type = "lag"),
+              by = parcel_id]
+
+    message("  rows=", length(idx_yr),
+            " | land_NA=", sum(is.na(panel_all$log_land_filled[idx_yr])),
+            " | impr_NA=", sum(is.na(panel_all$log_impr_filled[idx_yr])))
+
+    # ------------------------------------------------------------------
+    # ACTUALS ANCHOR — use reported area growth instead of ML
+    # ------------------------------------------------------------------
+    # If area_report_actuals (Step 0) contains residential population-basis
+    # growth for this assessment year, apply it directly:
+    #   log_AV[t] = log_AV[t-1] + log(1 + actual_pct_change_area)
+    # to BOTH land and impr, so parcel totals grow exactly by the reported
+    # rate.  Parcels in areas without a report fall through to the ML delta
+    # blocks below (which only fill rows still NA).
+    if (exists("area_report_actuals", envir = .GlobalEnv)) {
+      act <- data.table::as.data.table(
+        get("area_report_actuals", envir = .GlobalEnv))
+      # Reports for assessment year A describe the A -> A+1 tax-roll change
+      # (1/1/A revalue posts to the A+1 tax roll), so they anchor tax_yr A+1.
+      act <- act[prop_type == "res" & basis == "population" &
+                   assessment_yr + 1L == yr,
+                 .(area_int    = suppressWarnings(as.integer(area)),
+                   dlog_actual = log1p(pct_change))]
+      act <- act[!is.na(area_int) & is.finite(dlog_actual)]
+
+      if (nrow(act) > 0 && "area" %in% names(panel_all)) {
+        panel_all[, area_int_tmp :=
+                    suppressWarnings(as.integer(as.character(area)))]
+        panel_all[, dlog_actual_tmp := NA_real_]
+        panel_all[act, on = .(area_int_tmp = area_int),
+                  dlog_actual_tmp := i.dlog_actual]
+
+        rows_act_land <- idx_yr[
+          !is.na(panel_all$dlog_actual_tmp[idx_yr]) &
+            !is.na(panel_all$log_land_filled_lag1[idx_yr]) &
+            is.na(panel_all$log_land_filled[idx_yr])
+        ]
+        if (length(rows_act_land) > 0) {
+          panel_all[rows_act_land,
+                    log_land_filled := log_land_filled_lag1 + dlog_actual_tmp]
+          panel_all[rows_act_land,
+                    appr_land_val_filled := exp(log_land_filled)]
+          panel_all[rows_act_land, land_method := "actual"]
+        }
+
+        rows_act_impr <- idx_yr[
+          !is.na(panel_all$dlog_actual_tmp[idx_yr]) &
+            !is.na(panel_all$log_impr_filled_lag1[idx_yr]) &
+            is.na(panel_all$log_impr_filled[idx_yr])
+        ]
+        if (length(rows_act_impr) > 0) {
+          panel_all[rows_act_impr,
+                    log_impr_filled := log_impr_filled_lag1 + dlog_actual_tmp]
+          panel_all[rows_act_impr,
+                    appr_imps_val_filled := exp(log_impr_filled)]
+          panel_all[rows_act_impr, impr_method := "actual"]
+        }
+
+        n_areas_hit <- panel_all[idx_yr][!is.na(dlog_actual_tmp),
+                                         data.table::uniqueN(area_int_tmp)]
+        message("  actuals anchor (", yr, "): land=", length(rows_act_land),
+                " | impr=", length(rows_act_impr),
+                " rows across ", n_areas_hit,
+                " areas; unmatched rows fall back to ML")
+        panel_all[, c("area_int_tmp", "dlog_actual_tmp") := NULL]
+      } else if (nrow(act) > 0) {
+        message("  actuals anchor: 'area' column missing from panel — ",
+                "using ML for ", yr)
+      }
+    }
+
+    # ------------------------------------------------------------------
+    # LAND delta
+    # ------------------------------------------------------------------
+    rows_land <- idx_yr[
+      !is.na(panel_all$log_land_filled_lag1[idx_yr]) &
+        is.na(panel_all$log_land_filled[idx_yr])
+    ]
+
+    if (length(rows_land) > 0) {
+      pc      <- intersect(pred_cols_land_base, names(panel_all))
+      dv_vars <- setdiff(all.vars(dv_land_delta$terms),
+                         all.vars(dv_land_delta$form)[1])
+      panel_all <- align_to_train(panel_all, train_land_df, union(pc, dv_vars))
+
+      nd <- impute_for_prediction(
+        as.data.frame(panel_all[rows_land, ..pc]),
+        train_land_df, dv_land_delta
+      )
+      preds <- predict_in_chunks(
+        function(df) predict_lgbm_safe(
+          lgb_land_delta_model, dv_land_delta, lgb_land_delta_features,
+          df, train_land_df
+        ), nd
+      )
+      panel_all[rows_land, log_land_filled      := log_land_filled_lag1 + preds]
+      panel_all[rows_land, appr_land_val_filled  := exp(log_land_filled)]
+      panel_all[rows_land, land_method           := "delta"]
+      message("  land: ", length(rows_land), " rows predicted")
+    } else {
+      message("  land: no eligible rows (lag missing or already filled)")
+    }
+
+    # ------------------------------------------------------------------
+    # IMPROVEMENTS delta
+    # ------------------------------------------------------------------
+    rows_impr <- idx_yr[
+      !is.na(panel_all$log_impr_filled_lag1[idx_yr]) &
+        is.na(panel_all$log_impr_filled[idx_yr])
+    ]
+
+    if (length(rows_impr) > 0) {
+      pc      <- intersect(pred_cols_impr_base, names(panel_all))
+      dv_vars <- setdiff(all.vars(dv_impr_delta$terms),
+                         all.vars(dv_impr_delta$form)[1])
+      panel_all <- align_to_train(panel_all, train_impr_df, union(pc, dv_vars))
+
+      nd <- impute_for_prediction(
+        as.data.frame(panel_all[rows_impr, ..pc]),
+        train_impr_df, dv_impr_delta
+      )
+      preds <- predict_in_chunks(
+        function(df) predict_lgbm_safe(
+          lgb_impr_delta_model, dv_impr_delta, lgb_impr_delta_features,
+          df, train_impr_df
+        ), nd
+      )
+      tmp <- panel_all$log_impr_filled_lag1[rows_impr] + preds
+      set(panel_all, rows_impr, "log_impr_filled",      tmp)
+      set(panel_all, rows_impr, "appr_imps_val_filled",  exp(tmp))
+      panel_all[rows_impr, impr_method := "delta"]
+      message("  impr: ", length(rows_impr), " rows predicted")
+    } else {
+      message("  impr: no eligible rows (lag missing or already filled)")
+    }
+
+    # ------------------------------------------------------------------
+    # Totals
+    # ------------------------------------------------------------------
+    # LAND-ONLY PARCELS.  Unlike the commercial and condo tracks, this script
+    # has no improvement LEVEL fallback: rows_impr requires a non-NA
+    # log_impr_filled_lag1, and a parcel with no improvement history never has
+    # one.  So no buildings are invented here - the delta model simply never
+    # fires for them.
+    #
+    # The consequence is different: appr_imps_val_filled stays NA, and
+    # land + NA = NA, so the parcel drops out of total_assessed_filled
+    # entirely rather than carrying its land value.  Coalescing to 0 keeps
+    # land-only parcels in the population at their correct value.
+    #
+    # Only parcels with land history and NO improvement history are treated
+    # this way.  A parcel whose improvement value merely failed to predict
+    # this year is left as NA so it stays visible.
+    if (isTRUE(get0("forecast_gate_land_only",
+                    envir = .GlobalEnv, ifnotfound = TRUE))) {
+      if (!exists(".res_land_only_ids", inherits = FALSE)) {
+        .rl <- panel_all[tax_yr <= hist_max_yr, .(
+          ever_imps = any(!is.na(appr_imps_val_base) & appr_imps_val_base > 0),
+          ever_land = any(!is.na(appr_land_val_base) & appr_land_val_base > 0)
+        ), by = parcel_id]
+        .res_land_only_ids <- .rl[ever_imps == FALSE & ever_land == TRUE,
+                                  parcel_id]
+        message("  land-only: ", scales::comma(length(.res_land_only_ids)),
+                " of ", scales::comma(nrow(.rl)),
+                " parcels have land but no improvement history through ",
+                hist_max_yr, " - improvements treated as 0 in totals")
+        rm(.rl)
+      }
+      if (length(.res_land_only_ids)) {
+        .lo_rows <- idx_yr[
+          panel_all$parcel_id[idx_yr] %in% .res_land_only_ids &
+            is.na(panel_all$appr_imps_val_filled[idx_yr])
+        ]
+        if (length(.lo_rows) > 0) {
+          set(panel_all, .lo_rows, "appr_imps_val_filled", 0)
+          panel_all[.lo_rows, impr_method := "land_only"]
+          message("  land-only: ", length(.lo_rows),
+                  " rows set to 0 improvements")
+        }
+        rm(.lo_rows)
+      }
+    }
+
+    panel_all[idx_yr,
+              total_assessed_filled := appr_land_val_filled + appr_imps_val_filled]
+    panel_all[idx_yr,
+              log_total_assessed_filled := fifelse(
+                total_assessed_filled > 0, log(total_assessed_filled), NA_real_)]
+
+    message("  total NA=",
+            sum(is.na(panel_all$total_assessed_filled[idx_yr])))
+  }
+
+  # ---- Method summary for this scenario ---------------------------------
+  method_counts <- as_tibble(panel_all) |>
+    filter(tax_yr > hist_max_yr) |>
+    group_by(tax_yr) |>
+    summarise(
+      n           = n(),
+      land_actual = sum(land_method == "actual", na.rm = TRUE),
+      land_delta  = sum(land_method == "delta", na.rm = TRUE),
+      land_na     = sum(is.na(land_method)),
+      impr_actual = sum(impr_method == "actual", na.rm = TRUE),
+      impr_delta  = sum(impr_method == "delta", na.rm = TRUE),
+      impr_na     = sum(is.na(impr_method)),
+      .groups = "drop"
+    ) |>
+    mutate(scenario = scenario_name)
+
+  all_method_counts[[scenario_name]] <- method_counts
+  print(method_counts, n = 100)
+
+  # ---- Write outputs ----------------------------------------------------
+  panel_out <- as_tibble(panel_all)
+
+  rds_path <- file.path(
+    cache_dir,
+    paste0("panel_tbl_2006_2031_forecasted_", scenario_name, "_res.rds")
+  )
+  saveRDS(panel_out, rds_path)
+  message("💾 cached: ", basename(rds_path))
+
+  parquet_path <- file.path(
+    output_dir,
+    paste0("parcel_year_panel_2006_2031_forecasted_", scenario_name, "_res.parquet")
+  )
+  arrow::write_parquet(panel_all, parquet_path)
+  message("💾 parquet: ", basename(parquet_path))
+}
+
+# =========================================================================
+# 5) Combined method summary across all scenarios
+# =========================================================================
+all_method_counts <- bind_rows(all_method_counts)
+message("\n--- Method counts, all scenarios ---")
+print(all_method_counts, n = 200)
+
+assign("panel_tbl_forecasted_res", panel_out, envir = .GlobalEnv)
+message("\n06_forecast_av_2026_2031_sequential.R complete (scenario = ", scenario, ").")
