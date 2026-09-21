@@ -1,2 +1,11 @@
-ara <- data.table::setDT(readRDS(here::here("data", "cache", "area_report_actuals_2026.rds")))
-ara[, .N, by = .(prop_type, basis, report_kind)]
+> ara <- data.table::setDT(readRDS(here::here("data", "cache", "area_report_actuals_2026.rds")))
+> ara[, .N, by = .(prop_type, basis, report_kind)]
+   prop_type      basis      report_kind     N
+      <char>     <char>           <char> <int>
+1:       com population              geo    23
+2:       com population        specialty     6
+3:       com population specialty_region     3
+4:     condo population            condo     8
+5:     condo      sales            condo     8
+6:       res population              geo    30
+7:       res      sales              geo    30
