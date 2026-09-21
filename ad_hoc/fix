@@ -1,4 +1,6 @@
-x <- readLines(here::here("scripts", "ml", "06_forecast_av_2026_2031_sequential.R"))
-hits <- grep("area_report|use_area_actuals|basis|prop_type|anchor", x)
-cat(sprintf("%4d: %s", hits, x[hits]), sep = "\n")
-length(x)
+> x <- readLines(here::here("scripts", "ml", "06_forecast_av_2026_2031_sequential.R"))
+> hits <- grep("area_report|use_area_actuals|basis|prop_type|anchor", x)
+> cat(sprintf("%4d: %s", hits, x[hits]), sep = "\n")
+  35:   # Small seed from training data anchors factor levels for predict.dummyVars
+> length(x)
+[1] 470
