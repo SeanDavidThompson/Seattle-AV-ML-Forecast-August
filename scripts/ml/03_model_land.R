@@ -23,8 +23,17 @@ model_dir <- get0("model_dir", envir = .GlobalEnv, ifnotfound = here("data", "mo
   file.exists(file.path(cache_dir, "panel_tbl_res_backbone.rds")))
   file.path(cache_dir, "panel_tbl_res_backbone.rds") else
   file.path(cache_dir, "panel_tbl.rds")
-message("  Reading panel from: ", basename(.panel_path))
-panel_tbl <- read_rds(.panel_path)
+# Prefer the panel_tbl_res object run_main_ml() Step 2 already loaded from
+# that same file: identical data, and it avoids holding a second multi-GB
+# copy during training.  Also what lets the backtest harness hand this
+# script a panel without writing to the production cache.
+if (exists("panel_tbl_res", envir = .GlobalEnv)) {
+  message("  Using panel_tbl_res from .GlobalEnv")
+  panel_tbl <- get("panel_tbl_res", envir = .GlobalEnv)
+} else {
+  message("  Reading panel from: ", basename(.panel_path))
+  panel_tbl <- read_rds(.panel_path)
+}
 rm(.panel_path)
 
 # Coerce to plain tibble — panel may be cached as a data.table and
@@ -74,6 +83,18 @@ if ("train_res" %in% names(panel_tbl)) {
           "Re-run 02_transfrm.R to add train_res.")
   panel_tbl_train <- panel_tbl
 }
+
+# Backtest: train_through_year (run_main_ml(), .GlobalEnv) truncates the
+# training frame to tax_yr <= T before lags are computed.  NULL = no filter.
+.tty <- get0("train_through_year", envir = .GlobalEnv, ifnotfound = NULL)
+if (!is.null(.tty)) {
+  .n0 <- nrow(panel_tbl_train)
+  panel_tbl_train <- panel_tbl_train %>% filter(tax_yr <= .tty)
+  message("  03_model_land: train_through_year = ", .tty, " — ",
+          nrow(panel_tbl_train), " of ", .n0, " rows kept")
+  rm(.n0)
+}
+rm(.tty)
 
 model_data_land_base <- panel_tbl_train %>%
   filter(tax_yr > 2006) %>%

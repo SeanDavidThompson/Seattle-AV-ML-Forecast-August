@@ -239,10 +239,17 @@ train_lgb_rolling <- function(dtrain, params, tax_yr_vec,
 if (!"model_condo" %in% names(panel_condo))
   panel_condo[, model_condo := 1L]
 
+# Backtest: train_through_year (run_main_ml(), .GlobalEnv) caps the training
+# frame at tax_yr <= T.  NULL = no cap = current behaviour.  Lags/deltas were
+# computed above with a backward-looking shift, so no <= T row carries a
+# post-T value.
+.tty <- get0("train_through_year", envir = .GlobalEnv, ifnotfound = NULL)
+.tty_cap <- if (is.null(.tty)) Inf else as.integer(.tty)
+
 model_base <- panel_condo[
   !is.na(log_appr_imps_val) &
     appr_imps_val > 0 &
-    tax_yr >= 2005 &
+    tax_yr >= 2005 & tax_yr <= .tty_cap &
     (is.na(model_condo) | model_condo == 1L) &
     (is.na(complex_type) | complex_type != 3L)   # exclude timeshares
 ]
