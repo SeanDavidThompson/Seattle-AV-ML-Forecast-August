@@ -1,3 +1,83 @@
+ run_backtest(origins = 2024)
+CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.
+For each origin year T the parcel models were trained only on assessment
+data through tax year T, and the forecast for T+1 onward was seeded from
+values observed through T.  But every macro driver - NWMLS housing series,
+OERF/econ series, CoStar market series, TRS construction-sales series - was
+fed in at its current (2026) vintage for every forecast year, including
+revisions.  The result measures how well the parcel models turn a KNOWN
+macro path into assessed values.  It does not measure how well the pipeline
+would have forecast in year T, when those paths were themselves forecasts.
+Real-time accuracy will be worse than these numbers.  Published OEFA
+forecasts placed alongside them were genuinely ex-ante.
+
+RETROFIT HELD FIXED.  Missing historical residential values were imputed
+once, by the production retrofit models fit on data through 2026, and those
+imputed values are reused for every origin.  The imputed panel is the base
+the extend and forecast steps work from, so imputation shapes the forecast
+path wherever a parcel's history has gaps, even though the parcel models
+were trained on observed values only.  A strict backtest would re-fit the
+retrofit through T.  This is a known source of optimism.  Tables with
+pop = seed_observed are restricted to parcels with an observed value at the
+origin year, where imputation does not touch the seed.
+
+KCA area-report anchors, where used (anchored = TRUE), are the year-T
+reports.  Commercial/condo forward-fill of missing history uses <= T values
+only (no backward fill).  Scoring is against observed AV in av_history_cln,
+never a filled value.  Growth is Seattle, matched-parcel, existing-parcel
+growth: it excludes new construction and parcels retired before 2026.
+OEFA's number is King County total roll growth.
+
+origins = 2024 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-24 13:53:14
+
+13:53:14  origin 2024: launching child process; log -> \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/logs/origin_2024.log
+15:51:08  origin 2024 finished; tail of log:
+     ==============================================
+     run_main_ml() finished — elapsed: 20.51 min
+       prop_scope = all | scenario = baseline
+       commercial subgroups: apt, office, industrial, retail, hospitality, medical + other
+     ==============================================
+     15:50:54    566538 parcel-year predictions -> pred_origin2024_unanchored.rds
+     15:51:02  scratch removed: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/work/origin_2024
+     15:51:02  origin 2024 done in 117.7 min
+15:51:08  scoring 2 prediction file(s)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/errors_by_horizon.csv (264 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/errors_by_cell.csv (264 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/errors_by_origin.csv (44 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/growth_by_year.csv (88 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/growth_by_horizon.csv (88 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/seed_coverage.csv (44 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/locf_backfill_counts.csv (24 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/anchor_coverage_com.csv (32 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/anchor_coverage_res.csv (6 rows)
+  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/forecast_row_av_check.csv (18 rows)
+
+--- smoke check: origin 2024, h = 1, track = all, pop = seed_observed ---
+   anchored g_pred g_act err_pp coverage n_matched
+     <lgcl>  <num> <num>  <num>    <num>     <int>
+1:    FALSE   3.89  0.53   3.37    0.998    206413
+2:     TRUE   1.62  0.53   1.10    0.998    206413
+  observed growth 0.53% | forecasts span 1.62% .. 3.89% (does not bracket observed)
+  PASS (coverage >= 0.5, |err| <= 10 pp)
+
+=== errors by horizon (total AV, pop = seed_observed, track = all) ===
+   horizon anchored n_origins      n RMSE_log MAE_log ME_log   WAPE bias_pct
+     <num>   <lgcl>     <int>  <int>    <num>   <num>  <num>  <num>    <num>
+1:       1    FALSE         1 206413   0.1590  0.0851 0.0004 0.1103   0.0335
+2:       2    FALSE         1 205582   0.1940  0.1077 0.0101 0.1336   0.0330
+3:       1     TRUE         1 206413   0.1453  0.0551 0.0223 0.0632   0.0109
+4:       2     TRUE         1 205582   0.1743  0.0870 0.0312 0.0966   0.0118
+
+=== citywide growth error by horizon (pp, pop = seed_observed, track = all) ===
+   horizon anchored n_origins mean_err_pp mae_err_pp mean_g_pred mean_g_act
+     <int>   <lgcl>     <int>       <num>      <num>       <num>      <num>
+1:       1    FALSE         1        3.37       3.37        3.89       0.53
+2:       2    FALSE         1       -0.10       0.10        2.89       2.99
+3:       1     TRUE         1        1.10       1.10        1.62       0.53
+4:       2     TRUE         1        0.08       0.08        3.07       2.99
+
+outputs: \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest
+
 CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.
 For each origin year T the parcel models were trained only on assessment
 data through tax year T, and the forecast for T+1 onward was seeded from
