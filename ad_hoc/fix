@@ -1,12 +1,4 @@
-
-
-> source(here::here("scripts","ml","backtest_harness.R"))
-> bt_compare_caches("path/to/backup/data/cache", here::here("data", "cache"))
-only in a: 
-only in b: panel_tbl_retro_apt.rds, panel_tbl_retro_com_other.rds, panel_tbl_retro_condo.rds, panel_tbl_retro_hospitality.rds, panel_tbl_retro_industrial.rds, panel_tbl_retro_medical.rds, panel_tbl_retro_office.rds, panel_tbl_retro_res.rds, panel_tbl_retro_retail.rds, model_data_apt_impr_delta.rds, model_data_apt_impr_level.rds, model_data_apt_land_delta.rds, model_data_apt_land_level.rds, model_data_comm_impr_delta.rds, model_data_comm_impr_level.rds, model_data_comm_land_delta.rds, model_data_comm_land_level.rds, model_data_condo_impr_delta.rds, model_data_condo_impr_level.rds, model_data_condo_land_delta.rds, model_data_condo_land_level.rds, model_data_hospitality_impr_delta.rds, model_data_hospitality_impr_level.rds, model_data_hospitality_land_delta.rds, model_data_hospitality_land_level.rds, model_data_impr_delta_model.rds, model_data_impr_level_model.rds, model_data_industrial_impr_delta.rds, model_data_industrial_impr_level.rds, model_data_industrial_land_delta.rds, model_data_industrial_land_level.rds, model_data_land_delta_model.rds, model_data_land_model.rds, model_data_medical_impr_delta.rds, model_data_medical_impr_level.rds, model_data_medical_land_delta.rds, model_data_medical_land_level.rds, model_data_office_impr_delta.rds, model_data_office_impr_level.rds, model_data_office_land_delta.rds, model_data_office_land_level.rds, model_data_retail_impr_delta.rds, model_data_retail_impr_level.rds, model_data_retail_land_delta.rds, model_data_retail_land_level.rds, panel_tbl_2006_2031_inputs_baseline.rds, panel_tbl_2006_2031_inputs_baseline_com.rds, panel_tbl_2006_2031_inputs_baseline_condo.rds, panel_tbl_2006_2031_inputs_baseline_res.rds, panel_tbl_2006_2031_inputs_optimistic.rds, panel_tbl_2006_2031_inputs_optimistic_com.rds, panel_tbl_2006_2031_inputs_optimistic_condo.rds, panel_tbl_2006_2031_inputs_pessimistic.rds, panel_tbl_2006_2031_inputs_pessimistic_com.rds, panel_tbl_2006_2031_inputs_pessimistic_condo.rds, panel_tbl_2027_2031_inputs_baseline_apt.rd ... <truncated>
-Null data.table (0 rows and 0 cols)
-> 
-> run_backtest(origins = 2025)
+> run_backtest(origins = 2024)
 CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.
 For each origin year T the parcel models were trained only on assessment
 data through tax year T, and the forecast for T+1 onward was seeded from
@@ -36,12 +28,13 @@ never a filled value.  Growth is Seattle, matched-parcel, existing-parcel
 growth: it excludes new construction and parcels retired before 2026.
 OEFA's number is King County total roll growth.
 
-origins = 2025 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-24 13:00:00
+origins = 2024 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-24 13:10:41
 
-13:00:01  origin 2025: launching child process; log -> \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/logs/origin_2025.log
-Error in run_backtest(origins = 2025) : 
-  origin 2025 failed (exit status 1); see \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/logs/origin_2025.log
-Called from: run_backtest(origins = 2025
+13:10:41  origin 2024: launching child process; log -> \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/logs/origin_2024.log
+Error in run_backtest(origins = 2024) : 
+  origin 2024 failed (exit status 1); see \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/logs/origin_2024.log
+Called from: run_backtest(origins = 2024)
+
 CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.
 For each origin year T the parcel models were trained only on assessment
 data through tax year T, and the forecast for T+1 onward was seeded from
@@ -71,73 +64,195 @@ never a filled value.  Growth is Seattle, matched-parcel, existing-parcel
 growth: it excludes new construction and parcels retired before 2026.
 OEFA's number is King County total roll growth.
 
-origins = 2025 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-24 13:00:02
+origins = 2024 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-24 13:10:42
 
-=== backtest origin 2025 : forecast 2026-2026 | anchored modes: TRUE, FALSE ===
+=== backtest origin 2024 : forecast 2025-2026 | anchored modes: TRUE, FALSE ===
 
-13:00:02  staging production caches into \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/work/origin_2025/cache (link)
-13:00:04    staged 27 files: linked 27
-13:00:15  history: res (production panel_tbl_retro_res, rows <= 2025)
-13:01:43    res: 31 citywide driver column(s) to realize; 7 constant-within-year column(s) left frozen: permits_cnt, permits_val_sum, permits_sqft_sum, units_added_sum, any_newconst_permit, permits_last_1yr, any_newconst
-13:03:52  history: apt
-13:03:56    apt: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
+13:10:42  staging production caches into \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/work/origin_2024/cache (link)
+13:10:44    staged 27 files: linked 27
+13:11:03  history: res (production panel_tbl_retro_res, rows <= 2024)
+13:12:24    res: 31 citywide driver column(s) to realize
+13:14:18  history: apt
+13:14:25    apt: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
   log_appr_land_val all-NA in apt retro panel — re-joining AV ...
-    AV re-join complete for apt: land non-NA = 166,289 | impr non-NA = 166,289
-    locf fill (apt, backfill = FALSE): log_appr_land_val fwd=7,867 back(would be)=11,259 | log_appr_imps_val fwd=14,802 back(would be)=12,041 | log_total_assessed fwd=7,812 back(would be)=11,258
+    AV re-join complete for apt: land non-NA = 159,536 | impr non-NA = 159,536
+    locf fill (apt, backfill = FALSE): log_appr_land_val fwd=7,492 back(would be)=10,734 | log_appr_imps_val fwd=13,867 back(would be)=11,416 | log_total_assessed fwd=7,440 back(would be)=10,733
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:04:13  history: office
-13:04:14    office: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
+13:14:40  history: office
+13:14:42    office: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
   log_appr_land_val all-NA in office retro panel — re-joining AV ...
-    AV re-join complete for office: land non-NA = 33,491 | impr non-NA = 33,491
-    locf fill (office, backfill = FALSE): log_appr_land_val fwd=2,964 back(would be)=2,329 | log_appr_imps_val fwd=3,892 back(would be)=2,721 | log_total_assessed fwd=2,964 back(would be)=2,329
+    AV re-join complete for office: land non-NA = 32,137 | impr non-NA = 32,137
+    locf fill (office, backfill = FALSE): log_appr_land_val fwd=2,829 back(would be)=2,304 | log_appr_imps_val fwd=3,679 back(would be)=2,696 | log_total_assessed fwd=2,829 back(would be)=2,304
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:04:21  history: industrial
-13:04:22    industrial: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
+13:14:49  history: industrial
+13:14:52    industrial: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
   log_appr_land_val all-NA in industrial retro panel — re-joining AV ...
-    AV re-join complete for industrial: land non-NA = 58,426 | impr non-NA = 58,426
-    locf fill (industrial, backfill = FALSE): log_appr_land_val fwd=3,212 back(would be)=3,884 | log_appr_imps_val fwd=3,715 back(would be)=4,162 | log_total_assessed fwd=3,225 back(would be)=3,839
+    AV re-join complete for industrial: land non-NA = 56,101 | impr non-NA = 56,101
+    locf fill (industrial, backfill = FALSE): log_appr_land_val fwd=3,024 back(would be)=3,834 | log_appr_imps_val fwd=3,482 back(would be)=4,087 | log_total_assessed fwd=3,037 back(would be)=3,789
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:04:31  history: retail
-13:04:33    retail: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
+13:15:00  history: retail
+13:15:03    retail: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
   log_appr_land_val all-NA in retail retro panel — re-joining AV ...
-    AV re-join complete for retail: land non-NA = 43,686 | impr non-NA = 43,686
-    locf fill (retail, backfill = FALSE): log_appr_land_val fwd=1,456 back(would be)=2,557 | log_appr_imps_val fwd=1,984 back(would be)=2,627 | log_total_assessed fwd=1,455 back(would be)=2,557
+    AV re-join complete for retail: land non-NA = 41,925 | impr non-NA = 41,925
+    locf fill (retail, backfill = FALSE): log_appr_land_val fwd=1,382 back(would be)=2,507 | log_appr_imps_val fwd=1,875 back(would be)=2,602 | log_total_assessed fwd=1,381 back(would be)=2,507
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:04:40  history: hospitality
-13:04:41    hospitality: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
+13:15:10  history: hospitality
+13:15:12    hospitality: 24 citywide driver column(s) to realize; 2 constant-within-year column(s) left frozen: nuisance_score, model_com
   log_appr_land_val all-NA in hospitality retro panel — re-joining AV ...
-    AV re-join complete for hospitality: land non-NA = 25,095 | impr non-NA = 25,095
-    locf fill (hospitality, backfill = FALSE): log_appr_land_val fwd=988 back(would be)=4,003 | log_appr_imps_val fwd=1,214 back(would be)=4,250 | log_total_assessed fwd=987 back(would be)=4,002
+    AV re-join complete for hospitality: land non-NA = 23,983 | impr non-NA = 23,983
+    locf fill (hospitality, backfill = FALSE): log_appr_land_val fwd=944 back(would be)=3,703 | log_appr_imps_val fwd=1,159 back(would be)=4,100 | log_total_assessed fwd=944 back(would be)=3,702
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:04:47  history: medical
-13:04:48    medical: 24 citywide driver column(s) to realize; 5 constant-within-year column(s) left frozen: spec_area, nuisance_score, surface_parking_sqft, spec_sub_area, model_com
+13:15:18  history: medical
+13:15:18    medical: 24 citywide driver column(s) to realize; 5 constant-within-year column(s) left frozen: spec_area, nuisance_score, surface_parking_sqft, spec_sub_area, model_com
   log_appr_land_val all-NA in medical retro panel — re-joining AV ...
-    AV re-join complete for medical: land non-NA = 4,979 | impr non-NA = 4,979
-    locf fill (medical, backfill = FALSE): log_appr_land_val fwd=586 back(would be)=388 | log_appr_imps_val fwd=597 back(would be)=462 | log_total_assessed fwd=583 back(would be)=388
+    AV re-join complete for medical: land non-NA = 4,788 | impr non-NA = 4,788
+    locf fill (medical, backfill = FALSE): log_appr_land_val fwd=550 back(would be)=363 | log_appr_imps_val fwd=558 back(would be)=437 | log_total_assessed fwd=548 back(would be)=363
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:04:52  history: com_other
-13:04:55    com_other: 24 citywide driver column(s) to realize; 4 constant-within-year column(s) left frozen: spec_area, nuisance_score, spec_sub_area, model_com
+13:15:23  history: com_other
+13:15:27    com_other: 24 citywide driver column(s) to realize; 4 constant-within-year column(s) left frozen: spec_area, nuisance_score, spec_sub_area, model_com
   log_appr_land_val all-NA in com_other retro panel — re-joining AV ...
-    AV re-join complete for com_other: land non-NA = 49,980 | impr non-NA = 49,980
-    locf fill (com_other, backfill = FALSE): log_appr_land_val fwd=11,059 back(would be)=8,851 | log_appr_imps_val fwd=10,763 back(would be)=4,062 | log_total_assessed fwd=11,041 back(would be)=8,851
+    AV re-join complete for com_other: land non-NA = 47,940 | impr non-NA = 47,940
+    locf fill (com_other, backfill = FALSE): log_appr_land_val fwd=10,422 back(would be)=8,251 | log_appr_imps_val fwd=10,036 back(would be)=3,787 | log_total_assessed fwd=10,405 back(would be)=8,251
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:05:03  history: condo
-13:05:38    condo: 12 citywide driver column(s) to realize; 19 constant-within-year column(s) left frozen: model_condo, nwmls_condo_med_price, nwmls_condo_active_list, nwmls_condo_closed_sales, nwmls_condo_med_price_lag1, nwmls_condo_med_price_lag2, nwmls_condo_active_list_lag1, nwmls_condo_active_list_lag2, nwmls_condo_med_price_delta, nwmls_condo_active_list_delta, nwmls_kc_condo_med_price, nwmls_kc_condo_active_list ...
+13:15:35  history: condo
+13:16:15    condo: 12 citywide driver column(s) to realize; 19 constant-within-year column(s) left frozen: model_condo, nwmls_condo_med_price, nwmls_condo_active_list, nwmls_condo_closed_sales, nwmls_condo_med_price_lag1, nwmls_condo_med_price_lag2, nwmls_condo_active_list_lag1, nwmls_condo_active_list_lag2, nwmls_condo_med_price_delta, nwmls_condo_active_list_delta, nwmls_kc_condo_med_price, nwmls_kc_condo_active_list ...
   log_appr_land_val all-NA in condo retro panel — re-joining AV ...
-    AV re-join complete for condo: land non-NA = 816,280 | impr non-NA = 816,280
-    locf fill (condo, backfill = FALSE): log_appr_land_val fwd=27,891 back(would be)=120,067 | log_appr_imps_val fwd=28,514 back(would be)=118,265 | log_total_assessed fwd=27,781 back(would be)=117,383
+    AV re-join complete for condo: land non-NA = 780,332 | impr non-NA = 780,332
+    locf fill (condo, backfill = FALSE): log_appr_land_val fwd=26,922 back(would be)=120,042 | log_appr_imps_val fwd=27,539 back(would be)=118,215 | log_total_assessed fwd=26,817 back(would be)=117,358
 Warning in `[.data.table`(cnt, , `:=`(track, key)) :
   A shallow copy of this data.table was taken so that := can add or remove 1 columns by reference. At an earlier point, this data.table was copied by R (or was created manually using structure() or similar). Avoid names<- and attr<- which in R currently (and oddly) may copy the whole data.table. Use set* syntax instead to avoid copying: ?set, ?setnames and ?setattr. It's also not unusual for data.table-agnostic packages to produce tables affected by this issue. If this message doesn't help, please report your use case to the data.table issue tracker so the root cause can be fixed or this message improved.
-13:07:22  locf backfill (would-have-filled) by track: apt=11258, office=2329, industrial=3839, retail=2557, hospitality=4002, medical=388, com_other=8851, condo=117383
-13:07:22  pass 1: run_main_ml(train_through_year = 2025, stop_after = 'extend')
-Error in run_main_ml(prop_scope = "all", scenario = cfg$scenario, panel_replicate = FALSE,  : 
-  forecast_start must be a year < forecast_end
-Calls: bt_run_origin -> run_main_ml
+13:17:49  locf backfill (would-have-filled) by track: apt=10733, office=2304, industrial=3789, retail=2507, hospitality=3702, medical=363, com_other=8251, condo=117358
+13:17:49  pass 1: run_main_ml(train_through_year = 2024, stop_after = 'extend')
+==============================================
+run_main_ml() started at: 2026-09-24 13:17:50
+replicate=FALSE | panel_replicate=FALSE | model_replicate=TRUE | retrofit=FALSE | diagnostics=FALSE | extend=TRUE | forecast_only=FALSE
+scenario = baseline | prop_scope = all
+  commercial subgroups: apt, office, industrial, retail, hospitality, medical
+forecast = 2025-2026
+use_area_actuals = FALSE
+use_health_ratings = TRUE
+BACKTEST MODE: train_through_year = 2024 | locf_backfill = FALSE | stop_after = extend
+kca_date = 2026-07-28 | seed = 123
+import_raw_changes = FALSE
+==============================================
+00_init.R loaded. the cake is still a lie.
+  com_other_growth_method = com_weighted | reclassify_com_other = TRUE (max tier 3)
+  extra sources -> kca_permits: TRUE | construction_sales: TRUE | home_improvement: TRUE
+
+--- Step 1: Skipped (panel_replicate=FALSE — panels load from cache in Step 2) ---
+
+--- Step 2: Panel assembly (scenario = baseline) ---
+  panel_replicate=FALSE — loading panels from cache ...
+  ✅ loaded: panel_tbl_res
+  ✅ loaded: panel_tbl_apt
+  ✅ loaded: panel_tbl_office
+  ✅ loaded: panel_tbl_industrial
+  ✅ loaded: panel_tbl_retail
+  ✅ loaded: panel_tbl_hospitality
+  ✅ loaded: panel_tbl_medical
+  ✅ loaded: panel_tbl_condo
+  🧹 freed: panel_tbl_condo  (3714.3 MB)
+  🧹 freed: panel_tbl_apt  (291.5 MB)
+  🧹 freed: panel_tbl_office  (62 MB)
+  🧹 freed: panel_tbl_industrial  (113.7 MB)
+  🧹 freed: panel_tbl_retail  (79 MB)
+  🧹 freed: panel_tbl_hospitality  (46.7 MB)
+  🧹 freed: panel_tbl_medical  (10.2 MB)
+
+--- Step 3: Models ---
+
+  [Residential models]
+  Training residential LightGBM models ...
+Parallel backend registered with 15 cores.
+Running 03_model_land.R (LightGBM delta + level rolling CV) ...
+  Using panel_tbl_res from .GlobalEnv
+  03_model_land: 418878 parcel-years excluded from training (train_res=0)
+  03_model_land: train_through_year = 2024 — 3769975 of 4071573 rows kept
+Dropping single-level factor(s): current_zoning_3
+Dropping zero-variance predictor(s): unbuildable, seismic_hazard, landslide_hazard, steep_slope_hazard, dist_to_public_km, dist_to_private_km, dist_to_lightrail_km
+Warning: There was 1 warning in `mutate()`.
+ℹ In argument: `across(all_of(fct_cols), ~forcats::fct_explicit_na(.x, na_level
+  = "Unknown"))`.
+Caused by warning:
+! `fct_explicit_na()` was deprecated in forcats 1.0.0.
+ℹ Please use `fct_na_value_to_level()` instead.
+LightGBM LAND DELTA rolling CV RMSE (delta): 0.1459
+Dropping single-level factor(s): current_zoning_3
+Dropping zero-variance predictor(s): unbuildable, seismic_hazard, landslide_hazard, steep_slope_hazard, dist_to_public_km, dist_to_private_km, dist_to_lightrail_km
+LightGBM LAND LEVEL rolling CV RMSE (log level): 0.4842
+✅ Saved land delta + level artifacts with stamp: 20260924_133227
+
+delta model — feature gain by group:
+# A tibble: 3 × 4
+  group  total_gain n_features avg_gain
+  <chr>       <dbl>      <int>    <dbl>
+1 nwmls      0.613           6  0.102  
+2 parcel     0.328          28  0.0117 
+3 econ       0.0589          6  0.00982
+
+delta model — top features by group:
+# A tibble: 15 × 3
+   group  feature                                                           gain
+   <chr>  <chr>                                                            <dbl>
+ 1 nwmls  sea_pmedesfh_lag12                                             0.327  
+ 2 nwmls  sea_pmedesfh_lag6                                              0.115  
+ 3 nwmls  sea_sesfh_lag6                                                 0.0985 
+ 4 nwmls  sea_alesfh_lag12                                               0.0605 
+ 5 nwmls  sea_alesfh_lag6                                                0.01000
+ 6 parcel log_appr_land_val_lag1                                         0.133  
+ 7 parcel area21                                                         0.0330 
+ 8 parcel sq_ft_lot                                                      0.0224 
+ 9 parcel log_appr_land_val_lag2                                         0.0215 
+10 parcel area48                                                         0.0143 
+11 econ   econ_employment_thous_yoy_lag1                                 0.0264 
+12 econ   econ_population_thous_yoy_lag1                                 0.00896
+13 econ   econ_services_providing_yoy_lag1                               0.00804
+14 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index… 0.00715
+15 econ   econ_wholesale_and_retail_trade_yoy_lag1                       0.00532
+
+level model — feature gain by group:
+# A tibble: 3 × 4
+  group  total_gain n_features avg_gain
+  <chr>       <dbl>      <int>    <dbl>
+1 parcel     0.698          63   0.0111
+2 nwmls      0.257           6   0.0429
+3 econ       0.0441          4   0.0110
+
+level model — top features by group:
+# A tibble: 14 × 3
+   group  feature                                                           gain
+   <chr>  <chr>                                                            <dbl>
+ 1 nwmls  sea_pmedesfh_lag12                                             0.196  
+ 2 nwmls  sea_pmedesfh_lag6                                              0.0458 
+ 3 nwmls  sea_alesfh_lag6                                                0.00615
+ 4 nwmls  sea_sesfh_lag6                                                 0.00571
+ 5 nwmls  sea_sesfh_lag12                                                0.00221
+ 6 parcel sq_ft_lot                                                      0.187  
+ 7 parcel area14                                                         0.0479 
+ 8 parcel area22                                                         0.0441 
+ 9 parcel area77                                                         0.0440 
+10 parcel area21                                                         0.0370 
+11 econ   econ_population_thous_lvl_lag1                                 0.0225 
+12 econ   econ_employment_thous_lvl_lag1                                 0.0184 
+13 econ   econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index… 0.00158
+14 econ   econ_services_providing_lvl_lag1                               0.00157
+03_model_land.R loaded (LightGBM delta + level)
+Running 03_model_impr.R (LightGBM delta + level rolling CV) ...
+  Using panel_tbl_res from .GlobalEnv
+  03_model_impr: 418878 parcel-years excluded from training (train_res=0)
+  03_model_impr: train_through_year = 2024 — 3769975 of 4071573 rows kept
+Dropping single-level factor(s): current_zoning_3
+LightGBM IMPROVEMENT delta rolling CV RMSE (delta): 0.4679
+💾 cached improvements DELTA model + dv_impr_delta + training frame
+                                             Model      RMSE
+1 LightGBM (delta rolling CV, reconstructed level) 0.2809553
+Dropping single-level factor(s): current_zoning_3
+Error: cannot allocate vector of size 24.2 Mb
 Execution halted
