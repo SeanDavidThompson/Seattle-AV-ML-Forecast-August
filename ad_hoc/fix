@@ -1,3 +1,59 @@
+> library(tidyverse)
+> library(readxl)
+> library(janitor)
+> library(plotly)
+> library(dplyr)
+> oefa_av_kc <- read_xlsx(here::here("data","AV 2022-2026 forecasts King County and Seattle - st.xlsx"), sheet = "Assessed Value", range = "B5:P16") |> 
++   clean_names() |> 
++   transmute(tax_year, 
++     "2022-03" = x44621,
++          "2022-07" = x44743,
++          "2023-03" = x44986,
++          "2023-07" = x45108,
++          "2024-03" = x45352,
++          "2024-07" = x45474,
++          "2025-04" = x45717,
++          "2025-07" = x45839,
++          "2026-03" = x46082,
++          "2026-07" = x46204) |> 
++   pivot_longer(-tax_year, names_to = "vintage", values_to = "av") |> 
++   glimpse()
+New names:                                                                                                                                                        
+• `` -> `...4`
+• `` -> `...7`
+• `` -> `...10`
+• `` -> `...13`
+Rows: 110
+Columns: 3
+$ tax_year <dbl> 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2022, 2022, 2022, 2022, 2…
+$ vintage  <chr> "2022-03", "2022-07", "2023-03", "2023-07", "2024-03", "2024-07", "2025-04", "2025-07", "2026-03", "2026-07", "2022-03", "2022-07", "2023-03", "2…
+$ av       <dbl> 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 65953…
+> 
+> oerf_av_sea <- read_xlsx(here::here("data","AV 2022-2026 forecasts King County and Seattle - st.xlsx"), sheet = "Assessed Value", range = "B22:P34") |> 
++   clean_names() |> 
++   transmute(tax_year, 
++             "2022-04" = x44652,
++             "2022-08" = x44774,
++             "2022-11" = x44866,
++             "2023-04" = x45017,
++             "2023-08" = x45139,
++             "2023-10" = x45200,
++             "2024-04" = x45383,
++             "2024-08" = x45505,
++             "2024-10" = x45566,
++             "2025-04" = x45748,
++             "2025-08" = x45870,
++             "2025-10" = x45931,
++             "2026-04" = x46113,
++             "2026-08" = x46235) |> 
++   pivot_longer(-tax_year, names_to = "vintage", values_to = "av") |> 
++   glimpse()
+Rows: 168                                                                                                                                                         
+Columns: 3
+$ tax_year <dbl> 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2…
+$ vintage  <chr> "2022-04", "2022-08", "2022-11", "2023-04", "2023-08", "2023-10", "2024-04", "2024-08", "2024-10", "2025-04", "2025-08", "2025-10", "2026-04", "2…
+$ av       <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 300425000000, 275174701578, 27517…
+
 > gg <- g[track %in% segs & pop == "seed_observed",
 +         .(track, horizon, anchored,
 +           g_pred     = round(mean_g_pred, 2),
