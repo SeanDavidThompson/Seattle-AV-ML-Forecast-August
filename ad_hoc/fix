@@ -1,41 +1,8 @@
-> # area_report_baseline_2026.R ----------------------------------------------
-> # Capture the PRE-CHANGE 2026 area-report import as the regression baseline
-> # for feature/area-reports-2019 (see AREA_REPORT_FORMATS.md, "Testing").
-> #
-> # The import script is taken from git at BASELINE_REV (main before the
-> # multi-year rewrite), not from the working tree, so this can be run at any
-> # time and still reproduces the old behaviour.  That script does not recurse,
-> # so the 2026 residential/ and commercial/ PDFs are copied into one flat
-> # temporary folder first ("commercial/280.pdf" -> "commercial__280.pdf";
-> # same-numbered files in the two subfolders would otherwise collide).
-> #
-> #   Rscript ad_hoc/area_report_baseline_2026.R
-> #
-> # Output: data/cache/area_report_baseline_main_2026.rds (gitignored)
-> # ---------------------------------------------------------------------------
-> suppressPackageStartupMessages(library(here))
-> if (!requireNamespace("pdftools", quietly = TRUE)) stop("needs {pdftools}")
-> 
-> BASELINE_REV <- "376df49"
-> src_dir  <- here::here("data", "kca", "area_reports", "2026")
-> out_path <- here::here("data", "cache", "area_report_baseline_main_2026.rds")
-> 
-> rel <- list.files(src_dir, pattern = "\\.pdf$", recursive = TRUE, ignore.case = TRUE)
-> if (!length(rel)) stop("no PDFs under ", src_dir)
-> 
-> tmp_root <- file.path(tempdir(), "ar_baseline")
-> unlink(tmp_root, recursive = TRUE)
-> flat <- file.path(tmp_root, "2026")
-> dir.create(flat, recursive = TRUE)
-> flat_names <- gsub("/", "__", rel, fixed = TRUE)
-> stopifnot(!anyDuplicated(tolower(flat_names)))
-> stopifnot(all(file.copy(file.path(src_dir, rel), file.path(flat, flat_names))))
-> message("Flat copy: ", length(rel), " PDFs -> ", flat)
-Flat copy: 30 PDFs -> C:\Users\ThompsS2\AppData\Local\Temp\1\RtmpG2o7gK/ar_baseline/2026
-> 
-> # Old script, with its hard-coded report root pointed at the flat copy
-> old <- system2("git", c("-C", shQuote(here::here()), "show",
-+                         paste0(BASELINE_REV, ":scripts/ml/area_report_import.R")),
-+                stdout = TRUE)
-Error in system2("git", c("-C", shQuote(here::here()), "show", paste0(BASELINE_REV,  : 
-  '"git"' not found
+old_path <- here::here("ad_hoc", "area_report_import_376df49.R")
+if (!file.exists(old_path)) {
+  download.file(
+    "https://github.com/SeanDavidThompson/Seattle-AV-ML-Forecast-August/raw/376df49/scripts/ml/area_report_import.R",
+    old_path, mode = "wb"
+  )
+}
+old <- readLines(old_path, warn = FALSE)
