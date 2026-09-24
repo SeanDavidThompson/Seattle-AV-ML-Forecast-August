@@ -1,2 +1,30 @@
-subset(area_report_actuals, spec_area %in% c(153, 174),
-       select = c(spec_area, pct_change, pct_land, pct_imps))
+MAIN_ML_DEFINE_ONLY <- TRUE
+source(here::here("scripts", "ml", "main_ml.R"))
+names(formals(run_main_ml))   # confirm the names below
+
+run_main_ml(
+  replicate          = FALSE,
+  panel_replicate    = FALSE,
+  model_replicate    = TRUE,
+  retrofit_replicate = TRUE,
+  extend_replicate   = TRUE,
+  forecast_only      = FALSE,
+  scenario           = "baseline",
+  seed               = 456,
+  use_area_actuals   = TRUE,
+  area_reports_year  = 2026,
+  train_through_year = NULL,
+  cache_dir  = here::here("data", "cache"),
+  model_dir  = here::here("data", "model"),
+  output_dir = here::here("data", "outputs")
+)
+
+bt_compare_caches("path/to/backup/data/cache", here::here("data", "cache"))
+
+MAIN_ML_DEFINE_ONLY <- TRUE
+source(here::here("scripts", "ml", "main_ml.R"))
+source(here::here("scripts", "ml", "backtest_harness.R"))
+names(formals(run_backtest))   # check for arguments beyond origins
+
+run_backtest(origins = 2025)          # sanity check first
+run_backtest(origins = 2019:2024)     # only if 2025 is clean
