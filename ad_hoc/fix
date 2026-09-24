@@ -1,32 +1,8 @@
-> unique(e$component); unique(e$pop)
-[1] "imps"  "land"  "total"
-[1] "all_scored"    "seed_observed"
-> 
-> segs <- c("res", "office", "apt")
-> 
-> acc <- e[track %in% segs & component == "total" & pop == "seed_observed",
-+          .(track, horizon, anchored, n,
-+            WAPE     = round(100 * WAPE, 1),
-+            bias_pct = round(100 * bias_pct, 1))]
-> setorder(acc, track, horizon, -anchored)
-> acc
-     track horizon anchored      n  WAPE bias_pct
-    <char>   <int>   <lgcl>  <int> <num>    <num>
- 1:    apt       1     TRUE   6593  10.4     -0.3
- 2:    apt       1    FALSE   6593  17.0     10.9
- 3:    apt       2     TRUE   6573  15.5     -3.3
- 4:    apt       2    FALSE   6573  20.6      7.6
- 5: office       1     TRUE   1309  14.3      2.7
- 6: office       1    FALSE   1309  34.1     29.4
- 7: office       2     TRUE   1299  19.9      4.4
- 8: office       2    FALSE   1299  39.0     30.1
- 9:    res       1     TRUE 155575   3.0     -0.3
-10:    res       1    FALSE 155575   6.0     -3.8
-11:    res       2     TRUE 154961   5.3     -0.3
-12:    res       2    FALSE 154961   7.2     -3.6
-> 
-> g <- read_bt("growth_by_horizon.csv")
-> names(g)
- [1] "horizon"         "track"           "anchored"        "pop"            
- [5] "n_origins"       "mean_err_pp"     "mae_err_pp"      "mean_cum_err_pp"
- [9] "mae_cum_err_pp"  "mean_g_pred"     "mean_g_act"  
+gg <- g[track %in% segs & pop == "seed_observed",
+        .(track, horizon, anchored,
+          g_pred     = round(mean_g_pred, 2),
+          g_act      = round(mean_g_act, 2),
+          err_pp     = round(mean_err_pp, 2),
+          cum_err_pp = round(mean_cum_err_pp, 2))]
+setorder(gg, track, horizon, -anchored)
+gg
