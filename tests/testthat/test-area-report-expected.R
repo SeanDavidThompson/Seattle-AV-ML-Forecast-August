@@ -43,7 +43,9 @@ test_that("coverage: every PDF found has a coverage record", {
     if (!dir.exists(file.path(AR_ROOT, y)) || !requireNamespace("pdftools", quietly = TRUE)) next
     n <- length(list.files(file.path(AR_ROOT, y), pattern = "\\.pdf$", recursive = TRUE,
                            ignore.case = TRUE))
-    expect_equal(nrow(ar_year(y)$coverage), n, info = y)
+    cov <- ar_year(y)$coverage
+    expect_equal(sum(!is.na(cov$file)), n, info = y)       # plus declared-gap lines
+    expect_false(anyDuplicated(cov$file[!is.na(cov$file)]) > 0, info = y)
   }
   succeed()
 })

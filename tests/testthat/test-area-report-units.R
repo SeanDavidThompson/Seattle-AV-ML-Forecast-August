@@ -338,3 +338,109 @@ test_that("headline total wins; land/imps come from the value table; mismatch wa
                  "spec 280 headline total \\+9.00% vs value table total \\+5.82%")
   expect_equal(r$pct_change, 0.09)
 })
+
+# ---- Fitted to pdf_text() of the real reports ----------------------------------
+# Lines copied from pdftools::pdf_text() output (2026-09-24).
+
+test_that("2019 condo 700_01: cover and mid-line neighborhood label", {
+  p1 <- c("            Specialty 700", "        Residential Condominium", "",
+          "      Annual Mass Appraisal Report", "                    of:", "",
+          "       Capitol Hill", "         Specialty Neighborhoods", "",
+          "          35, 40, 65, 70, AND 85.", "", "        2019 Assessment Roll", "",
+          "       For 2019 Property Taxes", "King County Department of Assessments")
+  p7 <- c("                                   Executive Summary Report",
+          "Appraisal Date: 1/1/2019- 2019 Assessment Roll",
+          "Area Name / Number: Capitol Hill; Neighborhoods: 35, 40, 65, 70, and 85.",
+          "Sales – Improved Valuation Change Summary",
+          "  2018 Value      $121,100        $404,800       $525,900        $599,800       87.7%       6.82%",
+          "  2019 Value      $140,100        $410,700       $550,800        $599,800       92.3%       5.48%",
+          "    Change        +$19,000        +$5,900        +$24,900                                   -1.34%",
+          "   %Change         +15.7%          +1.5%           +4.7%                        +4.6%      -19.64%",
+          "Population - Improved Parcel Summary Data:",
+          "    2018 Value       $128,500      $418,600       $547,100",
+          "    2019 Value       $147,900      $420,800       $568,700",
+          "Percent Change        +15.1%         +0.5%          +3.9%",
+          "Number of improved Parcels in the Population: 7,388")
+  cl <- ar_classify(ar_pages(p1, p7))
+  expect_equal(cl$kind, "condo"); expect_equal(cl$cover_year, 2019L)
+  out <- ar_parse_text(ar_pages(p1, p7), "commercial/700_01.pdf", 2019L)   # no layout warning
+  pop <- out$rows[out$rows$basis == "population", ]
+  expect_equal(pop$nbhds, "35,40,65,70,85")
+  expect_equal(c(pop$pct_change, pop$pct_land, pop$pct_imps), c(0.039, 0.151, 0.005))
+  expect_equal(pop$n_parcels, 7388L)
+  sal <- out$rows[out$rows$basis == "sales", ]
+  expect_equal(sal$pct_change, 0.047)
+})
+
+test_that("2025 North: headline rows under Change in Total Assessed Value", {
+  sec <- function(area, rows) c(sprintf("Area %d", area), "narrative", rows, "", "North District")
+  lines <- c(
+    "North District Geographic Areas Report",
+    "Areas: 10, 14, 17, 19, 80, 85, 90 and 95",
+    "Commercial Revalue for 2025 Assessment Roll",
+    sec(10, c("from the 2024 assessment of +1.00% in Geographic Area 10. The adjustments in values are",
+              "                         Change in Total Assessed Value",
+              "         2024 Total Value 2025 Total Value       $ Change                  % Change",
+              "          $3,999,274,274    $4,039,361,700      $40,087,426                 1.00%")),
+    sec(17, c("                            Change in Total Assessed Value",
+              "             2024 Total        2025 Total",
+              "               Value             Value           $ Change             % Change",
+              "          $9,177,186,099 $9,102,344,899           -$74,841,200         -0.82%")),
+    sec(80, c("                           CHANGE IN TOTAL ASSESSED VALUE",
+              "   2024 Total Value         2025 Total Value       $ Change                         % Change",
+              "    $4,603,139,700           $4,668,359,600    $      65,219,900                     1.42%")),
+    sec(85, c("                          CHANGE IN TOTAL ASSESSED VALUE",
+              "  2024 Total Value         2025 Total Value       $ Change                       % Change",
+              "   $6,018,144,959           $5,967,129,909   $       (51,015,050)                 -0.85%")))
+  cl <- ar_classify(ar_pages(lines))
+  expect_equal(cl$kind, "com_geo")
+  r <- suppressWarnings(parse_com_report(lines, "north.pdf", cl$cover))
+  expect_equal(r$area, c(10L, 17L, 80L, 85L))
+  expect_equal(r$pct_change, c(0.01, -0.0082, 0.0142, -0.0085))
+  expect_equal(r$delta, c(40087426, -74841200, 65219900, -51015050))
+  expect_equal(r$av_prev[1], 3999274274)
+})
+
+test_that("condo reports in commercial/ are not a layout mismatch", {
+  pages <- ar_pages(c("Specialty 700", "Residential Condominium", "2019 Assessment Roll"))
+  expect_length(ar_classify(pages, "commercial")$notes, 0)
+  expect_match(ar_classify(pages, "residential")$notes, "content says commercial \\(condo\\)")
+})
+
+test_that("declared known gap: one known_gap line whether the file is absent or present", {
+  root <- file.path(tempdir(), "ar_gap_test"); unlink(root, recursive = TRUE)
+  on.exit(unlink(root, recursive = TRUE))
+
+  # absent year folder
+  cov <- suppressWarnings(ar_import_year(2019L, root))$coverage
+  expect_equal(cov$status, "known_gap")
+  expect_true(is.na(cov$file))
+  expect_match(cov$reason, "^no summary published")
+
+  # file present (not a readable PDF: it must not be opened, and not be "unparsed")
+  dir.create(file.path(root, "2019", "commercial"), recursive = TRUE)
+  writeLines("not a pdf", file.path(root, "2019", "commercial", "100.pdf"))
+  cov <- suppressMessages(ar_import_year(2019L, root))$coverage
+  expect_equal(nrow(cov), 1L)
+  expect_equal(cov$file, "commercial/100.pdf")
+  expect_equal(cov$status, "known_gap")
+  expect_equal(cov$reason, "no summary published")
+
+  # a year with no declared gap gets no gap line
+  expect_equal(nrow(suppressWarnings(ar_import_year(2020L, root))$coverage), 0L)
+})
+
+test_that("comparison allow-lists: res areas 15/21/39/45 added, specialty 15 removed", {
+  row <- function(pt, rk, area = NA, spec = NA, basis = "population")
+    data.frame(prop_type = pt, report_kind = rk, area = area, spec_area = spec, spec_sub = NA,
+               spec_region = NA, basis = basis, pct_change = 0.01, report_id = "r", source_file = "f")
+  source(here::here("ad_hoc", "area_report_compare_2026.R"), local = TRUE)
+  b <- rbind(row("com", "specialty", spec = 15L), row("res", "geo", area = 1L))
+  n <- rbind(row("res", "geo", area = 1L), row("res", "geo", area = 21L),
+             row("res", "geo", area = 21L, basis = "sales"), row("res", "geo", area = 22L))
+  d <- ar_compare_actuals(b, n)
+  expect_equal(d$allowed[d$kind == "removed"], TRUE)
+  expect_equal(d$allowed[d$kind == "added"], c(TRUE, TRUE, FALSE))     # 22 is not on the list
+  b2 <- rbind(b, row("com", "specialty", spec = 16L))
+  expect_false(ar_compare_actuals(b2, n)$allowed[ar_compare_actuals(b2, n)$spec_area %in% 16L])
+})

@@ -13,7 +13,8 @@
 #   cleared         non-blank to blank                       AR_ALLOWED_DIFF_SPECS
 #   other_filled    blank to non-blank, not land/imps
 #   added, removed  whole rows                            -> fail outside
-#                                                            AR_ALLOWED_DIFF_SPECS
+#                                                            AR_ALLOWED_DIFF_SPECS,
+#                                   AR_ALLOWED_ADDED and AR_ALLOWED_REMOVED
 #
 #   Rscript ad_hoc/area_report_compare_2026.R
 # ---------------------------------------------------------------------------
@@ -24,6 +25,13 @@ AR_CMP_SKIP  <- c("report_id", "source_file", "report_year", "tax_yr")
 AR_CMP_TOTAL <- c("av_prev", "av_curr", "delta", "pct_change", "pct_change_chk")
 AR_CMP_FILL  <- c("land_prev", "land_curr", "imps_prev", "imps_curr", "pct_land", "pct_imps")
 AR_ALLOWED_DIFF_SPECS <- c(153L, 174L, 500L, 510L)
+# Whole rows that may be added / removed (every given column must match):
+# - 2026 single-area residential reports the old importer missed
+# - the old "specialty 15" row: commercial/015.pdf (houseboats), out of scope
+AR_ALLOWED_ADDED   <- data.frame(prop_type = "res", report_kind = "geo",
+                                 area = c(15L, 21L, 39L, 45L))
+AR_ALLOWED_REMOVED <- data.frame(prop_type = "com", report_kind = "specialty",
+                                 spec_area = 15L)
 AR_CMP_KINDS <- c("total_mismatch", "changed", "cleared", "other_filled", "filled",
                   "added", "removed")
 
@@ -73,8 +81,21 @@ ar_compare_actuals <- function(base, new, allowed_specs = AR_ALLOWED_DIFF_SPECS)
                       allowed = logical(0)))
   d <- do.call(rbind, out)
   d$allowed <- d$kind == "filled" |
-               (d$kind != "total_mismatch" & d$spec_area %in% allowed_specs)
+               (d$kind != "total_mismatch" & d$spec_area %in% allowed_specs) |
+               (d$kind == "added"   & .ar_row_in(d, AR_ALLOWED_ADDED)) |
+               (d$kind == "removed" & .ar_row_in(d, AR_ALLOWED_REMOVED))
   d
+}
+
+# TRUE where a row of d matches any row of `allow` on all of allow's columns
+.ar_row_in <- function(d, allow) {
+  hit <- rep(FALSE, nrow(d))
+  for (k in seq_len(nrow(allow))) {
+    m <- rep(TRUE, nrow(d))
+    for (cn in names(allow)) m <- m & !is.na(d[[cn]]) & as.character(d[[cn]]) == as.character(allow[[cn]][k])
+    hit <- hit | m
+  }
+  hit
 }
 
 # Counts per kind, split into allowed / failing

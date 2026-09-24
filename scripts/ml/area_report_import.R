@@ -84,12 +84,18 @@
 KCA_SPECIALTY_AREAS <- c(100L, 153L, 160L, 174L, 250L, 280L, 413L, 500L, 510L,
                          520L, 608L, 625L, 700L)
 
-# Reports known to lack a usable table.  Such a file is recorded as
-# "known_gap" in the coverage table; its figures are never imputed.
+# Declared gaps: reports that publish no usable summary.  Every import of that
+# year writes one "known_gap" coverage line per gap, whether the file is
+# present, unreadable or absent; its figures are never imputed.  `file` (path
+# under the year folder) is matched by name only and is not parsed, so it is
+# never also reported as unparsed.
+#   2019 Apartments: cover, maps and ratio study are scanned images; the text
+#   layer has no summary and no "Assessment Roll" line.
 AR_KNOWN_GAPS <- data.frame(
   year      = 2019L,
   spec_area = 100L,
-  reason    = "Apartments report has no summary table",
+  file      = "commercial/100.pdf",
+  reason    = "no summary published",
   stringsAsFactors = FALSE
 )
 
@@ -166,7 +172,9 @@ ar_classify <- function(pages, subfolder = NA_character_) {
   head2 <- .squish(.split_lines(.cover_pages(pages, 2L)))
   notes <- character(0)
 
-  yr_re <- "(?i)for\\s+(\\d{4})\\s+Assessment\\s+Roll"
+  # "Commercial Revalue for 2025 Assessment Roll"; 2019 condo covers print
+  # "2019 Assessment Roll" / "For 2019 Property Taxes" with no "for" before it
+  yr_re <- "(?i)(?:for\\s+)?\\b(\\d{4})\\s+Assessment\\s+Roll"
   yr <- regmatches(cover, regexec(yr_re, cover, perl = TRUE))[[1]]
   if (length(yr) < 2) yr <- regmatches(head2, regexec(yr_re, head2, perl = TRUE))[[1]]
   cover_year <- if (length(yr) == 2) as.integer(yr[2]) else NA_integer_
@@ -196,7 +204,8 @@ ar_classify <- function(pages, subfolder = NA_character_) {
 
   kind <- if (is_condo) "condo" else if (length(spec_nos)) "spec" else if (is_res) "res"
           else if (is_com) "com_geo" else "unknown"
-  family <- switch(kind, condo = , res = "residential", spec = , com_geo = "commercial",
+  # Condo (700_xx) reports are kept in commercial/ by convention
+  family <- switch(kind, res = "residential", condo = , spec = , com_geo = "commercial",
                    NA_character_)
   if (!is.na(subfolder) && !is.na(family) && !identical(tolower(subfolder), family))
     notes <- c(notes, sprintf("content says %s (%s) but file is in %s/", family, kind, subfolder))
@@ -278,12 +287,34 @@ ar_classify <- function(pages, subfolder = NA_character_) {
   if (length(vt)) vt[[1]] else NULL
 }
 
+# One-row headline within `window` lines below heading line h:
+#   "$ 14,417,785,000  $ 13,913,199,700  - $ 504,585,300  -3.50%"
+#   "$6,018,144,959    $5,967,129,909   $       (51,015,050)   -0.85%"
+# Returns list(prev, curr, delta, pct) or NULL.
+.headline_row <- function(lines, h, window = 6L) {
+  if (h >= length(lines)) return(NULL)
+  money   <- "([-+]?\\s*\\$\\s*[-+]?\\s*\\(?[\\d,]+\\)?)"
+  tot_pat <- paste0(
+    "^\\s*", money, "\\s+",
+    money, "\\s+",
+    "([-+]?\\s*\\$?\\s*[-+]?\\s*\\(?[\\d,]+\\)?)\\s+",
+    "(\\(?[-+]?\\s*[\\d.]+\\)?)\\s?%"
+  )
+  for (i in seq(h + 1, min(h + window, length(lines)))) {
+    g <- regmatches(lines[i], regexec(tot_pat, lines[i], perl = TRUE))[[1]]
+    if (length(g) == 5)
+      return(list(prev = .num(g[2]), curr = .num(g[3]), delta = .num(g[4]),
+                  pct = .num(g[5]) / 100, line = i))
+  }
+  NULL
+}
+
 # Value block -> the value columns of an output row
 .vt_cols <- function(tb) {
   tibble::tibble(
     av_prev    = tb$prev[3],
     av_curr    = tb$curr[3],
-    delta      = tb$curr[3] - tb$prev[3],
+    delta      = if (!is.null(tb$delta)) tb$delta else tb$curr[3] - tb$prev[3],
     pct_change = tb$pct[3],
     land_prev  = tb$prev[1],
     land_curr  = tb$curr[1],
@@ -353,7 +384,7 @@ parse_com_report <- function(lines, src, cover = "") {
   if (!is.null(out)) return(out)
 
   # 2025 North: one "Change in Total Assessed Value" block per area
-  chg <- .value_tables(lines, AR_HDR$change, src)
+  chg <- .change_sections(lines, src)
   if (length(chg) >= 2) return(.com_geo_sections(lines, src, chg))
 
   # 2019-2020: one area per PDF
@@ -416,6 +447,33 @@ parse_com_report <- function(lines, src, cover = "") {
   }
   if (length(out) == 0) return(NULL)
   dplyr::bind_rows(out)
+}
+
+# Every "Change in Total Assessed Value" heading with its figures.  2025 North
+# prints one headline row under a column header (which may wrap):
+#                          Change in Total Assessed Value
+#          2024 Total Value 2025 Total Value       $ Change        % Change
+#           $3,999,274,274    $4,039,361,700      $40,087,426       1.00%
+# Value rows ("2024 Value ...") under the heading are read with the F3 reader.
+.change_sections <- function(lines, src) {
+  out <- list()
+  for (h in grep(paste0("(?i)", AR_HDR$change), lines, perl = TRUE)) {
+    r <- .headline_row(lines, h)
+    if (!is.null(r)) {
+      calc <- r$curr / r$prev - 1
+      if (abs(calc - r$pct) > 0.005)
+        warning(sprintf("%s: printed %% change %+.2f%% differs from recomputed %+.2f%% (line %d)",
+                        src, 100 * r$pct, 100 * calc, r$line), call. = FALSE)
+      out[[length(out) + 1]] <- list(prev = c(NA, NA, r$prev), curr = c(NA, NA, r$curr),
+                                     delta = r$delta, pct = c(NA, NA, r$pct), hdr_line = h)
+      next
+    }
+    vt <- .value_tables(lines[h:min(h + 14L, length(lines))], AR_HDR$change, src)
+    if (length(vt) && vt[[1]]$hdr_line == 1L) {        # this heading's own rows
+      vt[[1]]$hdr_line <- h; out[[length(out) + 1]] <- vt[[1]]
+    }
+  }
+  out
 }
 
 # Assign each "Change in Total Assessed Value" block to the nearest preceding
@@ -667,36 +725,25 @@ parse_spec_report <- function(lines, src, spec_nos) {
   out <- list()
 
   # (a) specialty-wide total -------------------------------------------------
-  #   "$ 14,417,785,000  $ 13,913,199,700  - $ 504,585,300  -3.50%"
-  money   <- "([-+]?\\s*\\$\\s*[-+]?\\s*\\(?[\\d,]+\\)?)"
   tot_hdr <- grep("CHANGE IN TOTAL ASSESSED VALUE", lines, ignore.case = TRUE)
-  tot_pat <- paste0(
-    "^\\s*", money, "\\s+",
-    money, "\\s+",
-    "([-+]?\\s*\\$?\\s*[-+]?\\s*\\(?[\\d,]+\\)?)\\s+",
-    "(\\(?[-+]?\\s*[\\d.]+\\)?)\\s?%"
-  )
   for (h in tot_hdr) {
-    for (i in seq(h + 1, min(h + 6, length(lines)))) {
-      g <- regmatches(lines[i], regexec(tot_pat, lines[i], perl = TRUE))[[1]]
-      if (length(g) == 5) {
-        out[[length(out) + 1]] <- tibble::tibble(
-          prop_type   = "com",
-          report_kind = "specialty",
-          spec_area   = spec_no,
-          spec_sub    = NA_integer_,
-          area        = NA_integer_,
-          basis       = "population",
-          av_prev     = .num(g[2]),
-          av_curr     = .num(g[3]),
-          delta       = .num(g[4]),
-          pct_change  = .num(g[5]) / 100,
-          source_file = src
-        )
-        break
-      }
+    r <- .headline_row(lines, h)
+    if (!is.null(r)) {
+      out[[length(out) + 1]] <- tibble::tibble(
+        prop_type   = "com",
+        report_kind = "specialty",
+        spec_area   = spec_no,
+        spec_sub    = NA_integer_,
+        area        = NA_integer_,
+        basis       = "population",
+        av_prev     = r$prev,
+        av_curr     = r$curr,
+        delta       = r$delta,
+        pct_change  = r$pct,
+        source_file = src
+      )
+      break
     }
-    if (length(out) > 0) break
   }
 
   # (a2) Value table: "Population Value Summary" (Apartments layout), else a
@@ -809,11 +856,14 @@ parse_spec_report <- function(lines, src, spec_nos) {
 #   Percent Change         -3.1%         -7.0%           -5.7%
 #   Number of improved Parcels in the Population: 8,015
 parse_condo_report <- function(lines, src) {
-  label <- "^\\s*(Neighbou?rhoods?|Areas?)\\s*:"
+  # The label starts the line, or follows a ";" (2019: "Area Name / Number:
+  # Capitol Hill; Neighborhoods: 35, 40, 65, 70, and 85.")
+  label <- "^(?:\\s*|.*?;\\s*)(Neighbou?rhoods?|Areas?)\\s*:"
 
   # Neighborhood list (prefer the Executive Summary line over the cover line)
   nb_idx <- grep(label, lines, ignore.case = TRUE, perl = TRUE)
-  nb_idx <- nb_idx[order(!grepl("^\\s*Neighbou?rhood", lines[nb_idx], ignore.case = TRUE))]
+  nb_idx <- nb_idx[order(!grepl("(?:^\\s*|;\\s*)Neighbou?rhood", lines[nb_idx],
+                                ignore.case = TRUE, perl = TRUE))]
   nbhds <- integer(0)
   for (i in nb_idx) {
     txt <- sub(label, "", lines[i], ignore.case = TRUE, perl = TRUE)
@@ -973,27 +1023,42 @@ ar_parse_file <- function(path, rel, folder_year, pages = NULL) {
 ar_import_year <- function(year, root = here::here("data", "kca", "area_reports")) {
   year <- as.integer(year)
   dir  <- file.path(root, as.character(year))
-  empty_cov <- data.frame(year = integer(0), subfolder = character(0), file = character(0),
-                          kind = character(0), cover_year = integer(0), status = character(0),
-                          n_rows = integer(0), reason = character(0), stringsAsFactors = FALSE)
-  if (!dir.exists(dir)) {
+  gaps <- AR_KNOWN_GAPS[AR_KNOWN_GAPS$year == year, , drop = FALSE]
+  cov_line <- function(file, status, reason, subfolder = NA_character_) {
+    n <- length(file)
+    data.frame(year = rep(year, n), subfolder = rep(subfolder, length.out = n), file = file,
+               kind = rep(NA_character_, n), cover_year = rep(NA_integer_, n), status = status,
+               n_rows = rep(0L, n), reason = reason, stringsAsFactors = FALSE)
+  }
+
+  files <- if (dir.exists(dir))
+    sort(list.files(dir, pattern = "\\.pdf$", recursive = TRUE, ignore.case = TRUE)) else character(0)
+  if (!dir.exists(dir))
     warning("Area report directory not found: ", dir, call. = FALSE)
-    return(list(actuals = NULL, coverage = empty_cov))
-  }
-  files <- sort(list.files(dir, pattern = "\\.pdf$", recursive = TRUE, ignore.case = TRUE))
-  if (!length(files)) {
+  else if (!length(files))
     warning("No PDFs found in ", dir, " (searched residential/ and commercial/)", call. = FALSE)
-    return(list(actuals = NULL, coverage = empty_cov))
-  }
   off <- files[!tolower(sub("/.*$", "", files)) %in% c("residential", "commercial") |
                !grepl("/", files, fixed = TRUE)]
   if (length(off))
     warning(year, ": PDFs outside residential/ or commercial/ (parsed anyway): ",
             paste(off, collapse = ", "), call. = FALSE)
 
-  per <- lapply(files, function(rel) ar_parse_file(file.path(dir, rel), rel, year))
-  coverage <- do.call(rbind, lapply(per, `[[`, "coverage"))
-  parsed   <- dplyr::bind_rows(lapply(per, `[[`, "rows"))
+  # Declared gap files are recorded, not parsed
+  gap_file <- files[tolower(files) %in% tolower(gaps$file)]
+  per <- lapply(setdiff(files, gap_file), function(rel) ar_parse_file(file.path(dir, rel), rel, year))
+  coverage <- do.call(rbind, c(list(cov_line(character(0), character(0), character(0))),
+                               lapply(per, `[[`, "coverage")))
+  for (k in seq_len(nrow(gaps))) {
+    hit <- gap_file[tolower(gap_file) == tolower(gaps$file[k])]
+    if (length(hit)) {
+      coverage <- rbind(coverage, cov_line(hit, "known_gap", gaps$reason[k], sub("/.*$", "", hit)))
+    } else if (!any(coverage$status == "known_gap" & coverage$reason %in% gaps$reason[k])) {
+      coverage <- rbind(coverage, cov_line(NA_character_, "known_gap",
+                                           paste0(gaps$reason[k], " (spec ", gaps$spec_area[k],
+                                                  "; ", gaps$file[k], " not present)")))
+    }
+  }
+  parsed <- dplyr::bind_rows(lapply(per, `[[`, "rows"))
   if (!nrow(parsed)) return(list(actuals = NULL, coverage = coverage))
 
   actuals <- parsed |>
@@ -1085,14 +1150,15 @@ ar_print_coverage <- function(coverage) {
   message(sprintf("  %-4s %6s %7s %9s %10s", "year", "found", "parsed", "unparsed", "known_gap"))
   for (y in yrs) {
     cy <- coverage[coverage$year == y, ]
-    message(sprintf("  %-4d %6d %7d %9d %10d", y, nrow(cy), sum(cy$status == "parsed"),
+    message(sprintf("  %-4d %6d %7d %9d %10d", y, sum(!is.na(cy$file)), sum(cy$status == "parsed"),
                     sum(cy$status == "unparsed"), sum(cy$status == "known_gap")))
   }
   bad <- coverage[coverage$status != "parsed", ]
   if (nrow(bad)) {
     message("  not parsed:")
     for (i in seq_len(nrow(bad)))
-      message(sprintf("    %d %-28s %-9s %s", bad$year[i], bad$file[i], bad$status[i],
+      message(sprintf("    %d %-28s %-9s %s", bad$year[i], dplyr::coalesce(bad$file[i], "(no file)"),
+                      bad$status[i],
                       dplyr::coalesce(bad$reason[i], "")))
   }
   invisible(coverage)

@@ -26,9 +26,13 @@ in both).
 | `backtest_harness.R:396` (`bt_check_area_reports`) | Non-recursive `list.files`, so a correctly filled year looks empty and the harness stops | Add `recursive = TRUE`. Without this, the anchored backtest refuses every origin. |
 
 The subfolder is used only as a hint. The report type comes from the content
-(F1). When the content family (`res`/`condo` vs `com`) disagrees with the
-subfolder, the importer warns and records the disagreement in the coverage
-table. It does not skip the file.
+(F1).
+- Residential reports belong in `residential/`.
+- Commercial geographic, specialty and condo (`700_xx`) reports belong in
+  `commercial/`. Condo reports are kept there by convention; the 2026
+  baseline had them there too.
+- When the content disagrees with the subfolder, the importer warns. It does
+  not skip the file.
 
 ### 0.2 Restructure into functions (so tests can call them)
 
@@ -249,10 +253,21 @@ read.
   (`:277`) is skipped for 2021, and the log says so.
 - 2022–2026 are unchanged.
 
-**2019.** There is no summary table. `KNOWN_GAPS <- tibble(year = 2019L, spec_area = 100L, reason = "no summary table in report")`.
-The file is marked `known_gap`, and no specialty row is produced or imputed.
-If a 2019 apartments file ever does parse, the importer warns that the known
-gap is stale.
+**2019: declared known gap.** The 2019 report has no usable text:
+- The cover, the maps and the ratio-study pages are scanned images.
+- The text layer holds only the cover letter, boilerplate, and sales lists
+  headed "Improvement Sales for Area 100 …".
+- "Assessment Roll" never appears in it.
+
+So the gap is declared, not detected:
+`AR_KNOWN_GAPS = (year 2019, spec_area 100, file "commercial/100.pdf", reason "no summary published")`.
+
+- Every import of 2019 writes exactly one `known_gap` coverage line for it,
+  whether the file is present, unreadable or absent.
+- A file at the declared path is matched by name and never opened, so it is
+  not also reported as `unparsed`. If the file is absent, the line has no
+  file.
+- No specialty row is produced or imputed.
 
 ## F9 — Year from the cover
 
@@ -352,3 +367,28 @@ The land/imps merge fills `land_*`/`imps_*` on any **2026** specialty
 headline that also has a population value table. This was accepted in
 review: such differences are classified as `filled` and allowed, while totals
 must still match exactly.
+
+## Fitted to the real reports (2026-09-24)
+
+These rules were checked against `pdftools::pdf_text()` of the real PDFs.
+
+- **2025 North (F5).** Each area's figures are one headline row under a
+  "Change in Total Assessed Value" heading and its column header. The column
+  header wraps onto two lines for area 17. The row has the same shape as a
+  specialty headline, for example:
+  `$3,999,274,274 $4,039,361,700 $40,087,426 1.00%`.
+  - `.change_sections()` reads that row with the shared `.headline_row()`
+    reader, falling back to F3 value rows.
+  - Each section goes to the nearest preceding bare `Area NN` line.
+- **2019 condo (`700_01`).** The neighbourhood list is only in the middle of
+  a line:
+  `Area Name / Number: Capitol Hill; Neighborhoods: 35, 40, 65, 70, and 85.`
+  The label is now also accepted after a `;`.
+- **Cover year.** The 2019 condo cover says `2019 Assessment Roll` with no
+  "for" in front, so "for" is now optional.
+- **2026 comparison.** Two whole-row exceptions are now allowed:
+  - Added: `res`/`geo` areas 15, 21, 39 and 45, both sales and population.
+    These are single-area reports the old importer missed.
+  - Removed: the old `com`/`specialty` 15 row (`commercial/015.pdf`,
+    houseboats). That report is out of scope, and the 3-digit specialty rule
+    is unchanged.
