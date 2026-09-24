@@ -1,78 +1,30 @@
-> library(tidyverse)
-> library(readxl)
-> library(janitor)
-> library(plotly)
-> library(dplyr)
-> oefa_av_kc <- read_xlsx(here::here("data","AV 2022-2026 forecasts King County and Seattle - st.xlsx"), sheet = "Assessed Value", range = "B5:P16") |> 
-+   clean_names() |> 
-+   transmute(tax_year, 
-+     "2022-03" = x44621,
-+          "2022-07" = x44743,
-+          "2023-03" = x44986,
-+          "2023-07" = x45108,
-+          "2024-03" = x45352,
-+          "2024-07" = x45474,
-+          "2025-04" = x45717,
-+          "2025-07" = x45839,
-+          "2026-03" = x46082,
-+          "2026-07" = x46204) |> 
-+   pivot_longer(-tax_year, names_to = "vintage", values_to = "av") |> 
-+   glimpse()
-New names:                                                                                                                                                        
-• `` -> `...4`
-• `` -> `...7`
-• `` -> `...10`
-• `` -> `...13`
-Rows: 110
-Columns: 3
-$ tax_year <dbl> 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2022, 2022, 2022, 2022, 2…
-$ vintage  <chr> "2022-03", "2022-07", "2023-03", "2023-07", "2024-03", "2024-07", "2025-04", "2025-07", "2026-03", "2026-07", "2022-03", "2022-07", "2023-03", "2…
-$ av       <dbl> 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 642490492044, 65953…
-> 
-> oerf_av_sea <- read_xlsx(here::here("data","AV 2022-2026 forecasts King County and Seattle - st.xlsx"), sheet = "Assessed Value", range = "B22:P34") |> 
-+   clean_names() |> 
-+   transmute(tax_year, 
-+             "2022-04" = x44652,
-+             "2022-08" = x44774,
-+             "2022-11" = x44866,
-+             "2023-04" = x45017,
-+             "2023-08" = x45139,
-+             "2023-10" = x45200,
-+             "2024-04" = x45383,
-+             "2024-08" = x45505,
-+             "2024-10" = x45566,
-+             "2025-04" = x45748,
-+             "2025-08" = x45870,
-+             "2025-10" = x45931,
-+             "2026-04" = x46113,
-+             "2026-08" = x46235) |> 
-+   pivot_longer(-tax_year, names_to = "vintage", values_to = "av") |> 
-+   glimpse()
-Rows: 168                                                                                                                                                         
-Columns: 3
-$ tax_year <dbl> 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2020, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2021, 2…
-$ vintage  <chr> "2022-04", "2022-08", "2022-11", "2023-04", "2023-08", "2023-10", "2024-04", "2024-08", "2024-10", "2025-04", "2025-08", "2025-10", "2026-04", "2…
-$ av       <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 300425000000, 275174701578, 27517…
+gg <- g[track %in% c(segs, "all") & pop == "seed_observed",
+        .(track, horizon, anchored,
+          g_pred     = round(100 * mean_g_pred, 1),
+          g_act      = round(100 * mean_g_act, 1),
+          err_pp     = round(mean_err_pp, 1),
+          cum_err_pp = round(mean_cum_err_pp, 1))]
+setorder(gg, track, horizon, -anchored)
 
-> gg <- g[track %in% segs & pop == "seed_observed",
-+         .(track, horizon, anchored,
-+           g_pred     = round(mean_g_pred, 2),
-+           g_act      = round(mean_g_act, 2),
-+           err_pp     = round(mean_err_pp, 2),
-+           cum_err_pp = round(mean_cum_err_pp, 2))]
-> setorder(gg, track, horizon, -anchored)
-> gg
-     track horizon anchored g_pred g_act err_pp cum_err_pp
-    <char>   <int>   <lgcl>  <num> <num>  <num>      <num>
- 1:    apt       1     TRUE  -0.06 -0.06  -0.26      -0.26
- 2:    apt       1    FALSE   0.04 -0.06  10.24      10.24
- 3:    apt       2     TRUE   0.01  0.04  -3.14      -3.24
- 4:    apt       2    FALSE   0.01  0.04  -3.07       7.46
- 5: office       1     TRUE  -0.23 -0.25   1.99       1.99
- 6: office       1    FALSE  -0.03 -0.25  22.08      22.08
- 7: office       2     TRUE  -0.05 -0.06   1.37       3.12
- 8: office       2    FALSE  -0.06 -0.06   0.29      21.25
- 9:    res       1     TRUE   0.08  0.08  -0.30      -0.30
-10:    res       1    FALSE   0.04  0.08  -4.06      -4.06
-11:    res       2     TRUE   0.04  0.05  -0.06      -0.38
-12:    res       2    FALSE   0.05  0.05   0.20      -4.04
+score_vintages <- function(df) {
+  act <- df |>
+    filter(vintage == max(vintage)) |>
+    select(tax_year, act = av)
+
+  df |>
+    mutate(vy = as.integer(substr(vintage, 1, 4)),
+           horizon = tax_year - vy) |>
+    filter(horizon %in% 1:2) |>
+    left_join(act, by = "tax_year") |>
+    left_join(rename(act, base = act), by = c("vy" = "tax_year")) |>
+    filter(!is.na(act), !is.na(base)) |>
+    mutate(g_pred     = 100 * (av  / base - 1),
+           g_act      = 100 * (act / base - 1),
+           cum_err_pp = g_pred - g_act) |>
+    select(vintage, tax_year, horizon, g_pred, g_act, cum_err_pp)
+}
+
+oerf_scored <- score_vintages(oerf_av_sea)
+oefa_scored <- score_vintages(oefa_av_kc)
+
+oerf_scored |> filter(substr(vintage, 1, 4) == "2024")
