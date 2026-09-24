@@ -1,8 +1,22 @@
-gg <- g[track %in% segs & pop == "seed_observed",
-        .(track, horizon, anchored,
-          g_pred     = round(mean_g_pred, 2),
-          g_act      = round(mean_g_act, 2),
-          err_pp     = round(mean_err_pp, 2),
-          cum_err_pp = round(mean_cum_err_pp, 2))]
-setorder(gg, track, horizon, -anchored)
-gg
+> gg <- g[track %in% segs & pop == "seed_observed",
++         .(track, horizon, anchored,
++           g_pred     = round(mean_g_pred, 2),
++           g_act      = round(mean_g_act, 2),
++           err_pp     = round(mean_err_pp, 2),
++           cum_err_pp = round(mean_cum_err_pp, 2))]
+> setorder(gg, track, horizon, -anchored)
+> gg
+     track horizon anchored g_pred g_act err_pp cum_err_pp
+    <char>   <int>   <lgcl>  <num> <num>  <num>      <num>
+ 1:    apt       1     TRUE  -0.06 -0.06  -0.26      -0.26
+ 2:    apt       1    FALSE   0.04 -0.06  10.24      10.24
+ 3:    apt       2     TRUE   0.01  0.04  -3.14      -3.24
+ 4:    apt       2    FALSE   0.01  0.04  -3.07       7.46
+ 5: office       1     TRUE  -0.23 -0.25   1.99       1.99
+ 6: office       1    FALSE  -0.03 -0.25  22.08      22.08
+ 7: office       2     TRUE  -0.05 -0.06   1.37       3.12
+ 8: office       2    FALSE  -0.06 -0.06   0.29      21.25
+ 9:    res       1     TRUE   0.08  0.08  -0.30      -0.30
+10:    res       1    FALSE   0.04  0.08  -4.06      -4.06
+11:    res       2     TRUE   0.04  0.05  -0.06      -0.38
+12:    res       2    FALSE   0.05  0.05   0.20      -4.04
