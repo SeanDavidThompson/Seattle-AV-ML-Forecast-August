@@ -1,9 +1,21 @@
-library(data.table)
-
-read_bt <- function(f) {
-  x <- readLines(file.path("data/outputs/backtest", f))
-  fread(text = x[!startsWith(x, "#")])
-}
-
-e <- read_bt("errors_by_horizon.csv")
-names(e); unique(e$track)
+> library(data.table)
+> 
+> read_bt <- function(f) {
++     x <- readLines(file.path("data/outputs/backtest", f))
++     fread(text = x[!startsWith(x, "#")])
++ }
+> 
+> e <- read_bt("errors_by_horizon.csv")
+> names(e); unique(e$track)
+ [1] "horizon"                      "track"                       
+ [3] "anchored"                     "component"                   
+ [5] "pop"                          "n"                           
+ [7] "obs_sum"                      "RMSE_log"                    
+ [9] "MAE_log"                      "ME_log"                      
+[11] "WAPE"                         "bias_pct"                    
+[13] "n_origins"                    "d_RMSE_log_anch_minus_unanch"
+[15] "d_MAE_log_anch_minus_unanch"  "d_ME_log_anch_minus_unanch"  
+[17] "d_WAPE_anch_minus_unanch"     "d_bias_pct_anch_minus_unanch"
+ [1] "all"         "apt"         "com"         "com_other"   "condo"      
+ [6] "hospitality" "industrial"  "medical"     "office"      "res"        
+[11] "retail"   
