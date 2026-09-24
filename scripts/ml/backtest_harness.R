@@ -393,7 +393,8 @@ bt_check_area_reports <- function(origins, area_reports_root) {
   bad <- character(0)
   for (.yr in origins) {
     dd <- file.path(area_reports_root, as.character(.yr))
-    n  <- if (dir.exists(dd)) length(list.files(dd, pattern = "\\.pdf$",
+    # Reports sit in <year>/residential/ and <year>/commercial/
+    n  <- if (dir.exists(dd)) length(list.files(dd, pattern = "\\.pdf$", recursive = TRUE,
                                                 ignore.case = TRUE)) else 0L
     if (n == 0L) bad <- c(bad, paste0(.yr, " (", dd, ")"))
   }
