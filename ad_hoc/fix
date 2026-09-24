@@ -1,1 +1,26 @@
-bt_compare_caches("path/to/backup/data/cache", here::here("data", "cache"))
+> warnings()
+Warning messages:
+1: commercial/015.pdf: 2 'Change in Total Assessed Value' sections, expected 8
+2: commercial/015.pdf: value section at line 488 has no preceding area heading
+3: commercial/015.pdf: value section at line 496 has no preceding area heading
+4: No area growth table recognised in: commercial/015.pdf (routed as com_geo)
+5: commercial/800.PDF: specialty 800 is not in KCA_SPECIALTY_AREAS
+6: Condo neighborhoods listed in more than one report: 270, 310, 315, 470
+7: `fct_explicit_na()` was deprecated in forcats 1.0.0.
+ℹ Please use `fct_na_value_to_level()` instead.
+This warning is displayed once per session.
+Call lifecycle::last_lifecycle_warnings() to see where this warning was generated.
+8: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1",  ... :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+9: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1",  ... :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+10: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1",  ... :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+11: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1",  ... :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+12: In `[.data.table`(yr_data, , `:=`(c("log_appr_land_val_lag1",  ... :
+  Tried to assign NULL to column 'log_appr_imps_val_lag1', but this column does not exist to remove
+
+> bt_compare_caches("path/to/backup/data/cache", here::here("data", "cache"))
+Error in bt_compare_caches("path/to/backup/data/cache", here::here("data",  : 
+  could not find function "bt_compare_caches"
