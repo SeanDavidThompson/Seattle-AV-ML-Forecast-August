@@ -1,11 +1,9 @@
-> library(data.table)
-> e <- fread("data/outputs/backtest/errors_by_horizon.csv") 
-Warning messages:
-1: In fread("data/outputs/backtest/errors_by_horizon.csv") :
-  Detected 1 column names but the data has 2 columns (i.e. invalid file). Added an extra default column name for the first column which is guessed to be row names or an index. Use setnames() afterwards if this guess is not correct, or fix the file write command that created the file to create a valid file.
-2: In fread("data/outputs/backtest/errors_by_horizon.csv") :
-  Stopped early on line 5. Expected 2 fields but found 3. Consider fill=TRUE. First discarded non-empty line: <<# OERF/econ series, CoStar market series, TRS construction-sales series - was>>
+library(data.table)
 
-> names(e); unique(e$track)
-[1] "V1"                                                                         "# For each origin year T the parcel models were trained only on assessment"
-NULL
+read_bt <- function(f) {
+  x <- readLines(file.path("data/outputs/backtest", f))
+  fread(text = x[!startsWith(x, "#")])
+}
+
+e <- read_bt("errors_by_horizon.csv")
+names(e); unique(e$track)
