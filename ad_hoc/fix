@@ -1,3 +1,9 @@
-list.files("data/outputs/backtest", pattern = "^pred_origin")
-
-ls(pattern = "^bt_")
+> list.files("data/outputs/backtest", pattern = "^pred_origin")
+character(0)
+> 
+> ls(pattern = "^bt_")
+ [1] "bt_assert_scratch"      "bt_build_history"       "bt_check_area_reports"  "bt_compare_caches"      "bt_dirs"                "bt_extract_drivers"    
+ [7] "bt_extract_predictions" "bt_fresh_dirs"          "bt_growth_by_horizon"   "bt_header_text"         "bt_load_actuals"        "bt_log"                
+[13] "bt_metrics"             "bt_norm_id"             "bt_read_csv"            "bt_realize_drivers"     "bt_run_origin"          "bt_score"              
+[19] "bt_score_by_horizon"    "bt_score_errors"        "bt_score_growth"        "bt_seed_coverage"       "bt_smoke_check"         "bt_stage_file"         
+[25] "bt_stage_inputs"        "bt_track_of_ext_file"   "bt_with_rollups"        "bt_write_csv"          
