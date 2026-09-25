@@ -1,5 +1,12 @@
-list.files("data/outputs/backtest", pattern = "pred_origin",
-           recursive = TRUE, full.names = TRUE)
-
-bt_dirs()
-args(bt_score)
+> list.files("data/outputs/backtest", pattern = "pred_origin",
++            recursive = TRUE, full.names = TRUE)
+[1] "data/outputs/backtest/predictions/pred_origin2023_anchored.rds"   "data/outputs/backtest/predictions/pred_origin2023_unanchored.rds"
+[3] "data/outputs/backtest/predictions/pred_origin2024_anchored.rds"   "data/outputs/backtest/predictions/pred_origin2024_unanchored.rds"
+> 
+> bt_dirs()
+Error in bt_dirs() : argument "out_dir" is missing, with no default
+Called from: file.path(out_dir, "work", paste0("origin_", origin))
+Browse[1]> args(bt_score)
+function (out_dir, prod_cache, origins, final_year, scenario) 
+NULL
+Browse[1]> Q
