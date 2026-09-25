@@ -1,18 +1,5 @@
-> bt_score(
-+     out_dir    = here::here("data", "outputs", "backtest"),
-+     prod_cache = here::here("data", "cache"),
-+     origins    = c(2023, 2024),
-+     final_year = 2026,
-+     scenario   = "baseline"
-+ )
-10:12:27  scoring 4 prediction file(s)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/errors_by_horizon.csv (396 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/errors_by_cell.csv (660 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/errors_by_origin.csv (88 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/growth_by_year.csv (220 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/growth_by_horizon.csv (132 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/seed_coverage.csv (110 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/locf_backfill_counts.csv (48 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/anchor_coverage_com.csv (77 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/anchor_coverage_res.csv (14 rows)
-  wrote \\ad.seattle.gov/dept/ERF/DATA/OERF/Revenue/AV and New Construction/2026/AV ML Model Aug/data/outputs/backtest/forecast_row_av_check.csv (36 rows)
+
+MAIN_ML_DEFINE_ONLY <- TRUE
+source(here::here("scripts", "ml", "main_ml.R"))
+source(here::here("scripts", "ml", "backtest_harness.R"))
+run_backtest(origins = 2019:2022, smoke_stop = FALSE)
