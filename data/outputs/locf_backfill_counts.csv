@@ -1,0 +1,175 @@
+# CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.
+# For each origin year T the parcel models were trained only on assessment
+# data through tax year T, and the forecast for T+1 onward was seeded from
+# values observed through T.  But every macro driver - NWMLS housing series,
+# OERF/econ series, CoStar market series, TRS construction-sales series - was
+# fed in at its current (2026) vintage for every forecast year, including
+# revisions.  The result measures how well the parcel models turn a KNOWN
+# macro path into assessed values.  It does not measure how well the pipeline
+# would have forecast in year T, when those paths were themselves forecasts.
+# Real-time accuracy will be worse than these numbers.  Published OEFA
+# forecasts placed alongside them were genuinely ex-ante.
+# 
+# RETROFIT HELD FIXED.  Missing historical residential values were imputed
+# once, by the production retrofit models fit on data through 2026, and those
+# imputed values are reused for every origin.  The imputed panel is the base
+# the extend and forecast steps work from, so imputation shapes the forecast
+# path wherever a parcel's history has gaps, even though the parcel models
+# were trained on observed values only.  A strict backtest would re-fit the
+# retrofit through T.  This is a known source of optimism.  Tables with
+# pop = seed_observed are restricted to parcels with an observed value at the
+# origin year, where imputation does not touch the seed.
+# 
+# KCA area-report anchors, where used (anchored = TRUE), are the year-T
+# reports.  Commercial/condo forward-fill of missing history uses <= T values
+# only (no backward fill).  Scoring is against observed AV in av_history_cln,
+# never a filled value.  Growth is Seattle, matched-parcel, existing-parcel
+# growth: it excludes new construction and parcels retired before 2026.
+# OEFA's number is King County total roll growth.
+# 
+# origins = 2019, 2020, 2021, 2022, 2023, 2024 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-26 23:55:28
+column,n_rows,n_forward_filled,n_backfilled,backfill_applied,track,origin,share_backfilled
+log_appr_land_val,148600,5394,9871,FALSE,apt,2019,0.0664266487213997
+log_appr_imps_val,148600,9243,10159,FALSE,apt,2019,0.0683647375504711
+log_total_assessed,148600,5346,9892,FALSE,apt,2019,0.0665679676985195
+log_appr_land_val,31560,2177,2188,FALSE,office,2019,0.0693282636248416
+log_appr_imps_val,31560,2703,2461,FALSE,office,2019,0.07797845373891
+log_total_assessed,31560,2177,2188,FALSE,office,2019,0.0693282636248416
+log_appr_land_val,57900,2107,3409,FALSE,industrial,2019,0.0588773747841105
+log_appr_imps_val,57900,2422,3643,FALSE,industrial,2019,0.0629188255613126
+log_total_assessed,57900,2114,3430,FALSE,industrial,2019,0.0592400690846287
+log_appr_land_val,40240,1045,2394,FALSE,retail,2019,0.059493041749503
+log_appr_imps_val,40240,1394,2386,FALSE,retail,2019,0.0592942345924453
+log_total_assessed,40240,1044,2394,FALSE,retail,2019,0.059493041749503
+log_appr_land_val,23780,717,2776,FALSE,hospitality,2019,0.116736753574432
+log_appr_imps_val,23780,877,2813,FALSE,hospitality,2019,0.118292682926829
+log_total_assessed,23780,717,2775,FALSE,hospitality,2019,0.116694701429773
+log_appr_land_val,5160,370,319,FALSE,medical,2019,0.0618217054263566
+log_appr_imps_val,5160,376,331,FALSE,medical,2019,0.0641472868217054
+log_total_assessed,5160,369,319,FALSE,medical,2019,0.0618217054263566
+log_appr_land_val,80600,7261,6071,FALSE,com_other,2019,0.0753225806451613
+log_appr_imps_val,80600,6867,2836,FALSE,com_other,2019,0.0351861042183623
+log_total_assessed,80600,7253,6071,FALSE,com_other,2019,0.0753225806451613
+log_appr_land_val,1951280,22768,116828,FALSE,condo,2019,0.0598724939526875
+log_appr_imps_val,1951280,23230,117730,FALSE,condo,2019,0.0603347546226067
+log_total_assessed,1951280,22718,116916,FALSE,condo,2019,0.0599175925546308
+log_appr_land_val,156030,5819,10031,FALSE,apt,2020,0.0642889187976671
+log_appr_imps_val,156030,10131,10399,FALSE,apt,2020,0.0666474395949497
+log_total_assessed,156030,5770,10052,FALSE,apt,2020,0.064423508299686
+log_appr_land_val,33138,2306,2188,FALSE,office,2020,0.0660269177379444
+log_appr_imps_val,33138,2887,2461,FALSE,office,2020,0.0742651940370572
+log_total_assessed,33138,2306,2188,FALSE,office,2020,0.0660269177379444
+log_appr_land_val,60795,2277,3409,FALSE,industrial,2020,0.0560736902705815
+log_appr_imps_val,60795,2614,3703,FALSE,industrial,2020,0.0609096142774899
+log_total_assessed,60795,2287,3430,FALSE,industrial,2020,0.0564191134139321
+log_appr_land_val,42252,1105,2394,FALSE,retail,2020,0.0566600397614314
+log_appr_imps_val,42252,1482,2446,FALSE,retail,2020,0.0578907507336931
+log_total_assessed,42252,1104,2394,FALSE,retail,2020,0.0566600397614314
+log_appr_land_val,24969,763,3056,FALSE,hospitality,2020,0.122391765789579
+log_appr_imps_val,24969,932,3053,FALSE,hospitality,2020,0.122271616804838
+log_total_assessed,24969,763,3055,FALSE,hospitality,2020,0.122351716127999
+log_appr_land_val,5418,403,339,FALSE,medical,2020,0.0625692137320044
+log_appr_imps_val,5418,408,391,FALSE,medical,2020,0.0721668512366187
+log_total_assessed,5418,402,339,FALSE,medical,2020,0.0625692137320044
+log_appr_land_val,84630,7880,6311,FALSE,com_other,2020,0.0745716648942455
+log_appr_imps_val,84630,7448,3056,FALSE,com_other,2020,0.0361101264327071
+log_total_assessed,84630,7870,6311,FALSE,com_other,2020,0.0745716648942455
+log_appr_land_val,2048844,23578,116868,FALSE,condo,2020,0.0570409460163878
+log_appr_imps_val,2048844,24104,117790,FALSE,condo,2020,0.057490955875606
+log_total_assessed,2048844,23519,116956,FALSE,condo,2020,0.0570838970658576
+log_appr_land_val,163460,6233,10325,FALSE,apt,2021,0.0631653003792977
+log_appr_imps_val,163460,11017,10693,FALSE,apt,2021,0.0654166156857947
+log_total_assessed,163460,6183,10346,FALSE,apt,2021,0.0632937721766793
+log_appr_land_val,34716,2426,2209,FALSE,office,2021,0.0636306026039866
+log_appr_imps_val,34716,3068,2482,FALSE,office,2021,0.0714944117985943
+log_total_assessed,34716,2426,2209,FALSE,office,2021,0.0636306026039866
+log_appr_land_val,63690,2456,3514,FALSE,industrial,2021,0.0551734966242738
+log_appr_imps_val,63690,2819,3766,FALSE,industrial,2021,0.0591301617208353
+log_total_assessed,63690,2469,3535,FALSE,industrial,2021,0.0555032187156539
+log_appr_land_val,44264,1165,2415,FALSE,retail,2021,0.0545590095788903
+log_appr_imps_val,44264,1569,2509,FALSE,retail,2021,0.0566826314838243
+log_total_assessed,44264,1164,2415,FALSE,retail,2021,0.0545590095788903
+log_appr_land_val,26158,806,3266,FALSE,hospitality,2021,0.124856640415934
+log_appr_imps_val,26158,985,3515,FALSE,hospitality,2021,0.13437571679792
+log_total_assessed,26158,806,3265,FALSE,hospitality,2021,0.124818411193516
+log_appr_land_val,5676,439,339,FALSE,medical,2021,0.0597251585623679
+log_appr_imps_val,5676,444,391,FALSE,medical,2021,0.0688865398167724
+log_total_assessed,5676,438,339,FALSE,medical,2021,0.0597251585623679
+log_appr_land_val,88660,8499,6647,FALSE,com_other,2021,0.0749718023911572
+log_appr_imps_val,88660,8049,3203,FALSE,com_other,2021,0.0361267764493571
+log_total_assessed,88660,8487,6647,FALSE,com_other,2021,0.0749718023911572
+log_appr_land_val,2146408,24357,119724,FALSE,condo,2021,0.0557787708581034
+log_appr_imps_val,2146408,24939,117874,FALSE,condo,2021,0.0549168657589797
+log_total_assessed,2146408,24287,117040,FALSE,condo,2021,0.0545283096224017
+log_appr_land_val,170890,6656,10523,FALSE,apt,2022,0.06157762303236
+log_appr_imps_val,170890,11953,10803,FALSE,apt,2022,0.0632161039265024
+log_total_assessed,170890,6605,10522,FALSE,apt,2022,0.0615717713148809
+log_appr_land_val,36294,2547,2209,FALSE,office,2022,0.0608640546646829
+log_appr_imps_val,36294,3253,2482,FALSE,office,2022,0.0683859591116989
+log_total_assessed,36294,2547,2209,FALSE,office,2022,0.0608640546646829
+log_appr_land_val,66585,2641,3646,FALSE,industrial,2022,0.0547570774198393
+log_appr_imps_val,66585,3034,3876,FALSE,industrial,2022,0.0582113088533454
+log_total_assessed,66585,2654,3601,FALSE,industrial,2022,0.0540812495306751
+log_appr_land_val,46276,1235,2459,FALSE,retail,2022,0.053137695565736
+log_appr_imps_val,46276,1667,2531,FALSE,retail,2022,0.0546935776644481
+log_total_assessed,46276,1234,2459,FALSE,retail,2022,0.053137695565736
+log_appr_land_val,27347,851,3398,FALSE,hospitality,2022,0.124254945697883
+log_appr_imps_val,27347,1041,3625,FALSE,hospitality,2022,0.132555673382821
+log_total_assessed,27347,851,3397,FALSE,hospitality,2022,0.12421837861557
+log_appr_land_val,5934,476,339,FALSE,medical,2022,0.0571284125379171
+log_appr_imps_val,5934,481,413,FALSE,medical,2022,0.0695989214694978
+log_total_assessed,5934,475,339,FALSE,medical,2022,0.0571284125379171
+log_appr_land_val,92690,9123,6933,FALSE,com_other,2022,0.074797712806128
+log_appr_imps_val,92690,8683,3335,FALSE,com_other,2022,0.0359801488833747
+log_total_assessed,92690,9109,6933,FALSE,com_other,2022,0.074797712806128
+log_appr_land_val,2243972,25149,119900,FALSE,condo,2022,0.0534320392589569
+log_appr_imps_val,2243972,25756,118050,FALSE,condo,2022,0.0526076082945777
+log_total_assessed,2243972,25069,117216,FALSE,condo,2022,0.0522359459030683
+log_appr_land_val,178320,7096,10638,FALSE,apt,2023,0.059656796769852
+log_appr_imps_val,178320,12939,11056,FALSE,apt,2023,0.0620008972633468
+log_total_assessed,178320,7045,10637,FALSE,apt,2023,0.0596511888739345
+log_appr_land_val,37872,2680,2232,FALSE,office,2023,0.05893536121673
+log_appr_imps_val,37872,3460,2528,FALSE,office,2023,0.066751161808196
+log_total_assessed,37872,2680,2232,FALSE,office,2023,0.05893536121673
+log_appr_land_val,69480,2826,3738,FALSE,industrial,2023,0.0537996545768567
+log_appr_imps_val,69480,3250,3991,FALSE,industrial,2023,0.0574409902130109
+log_total_assessed,69480,2839,3693,FALSE,industrial,2023,0.0531519861830743
+log_appr_land_val,48288,1306,2459,FALSE,retail,2023,0.0509236249171637
+log_appr_imps_val,48288,1768,2554,FALSE,retail,2023,0.0528909874088801
+log_total_assessed,48288,1305,2459,FALSE,retail,2023,0.0509236249171637
+log_appr_land_val,28536,902,3559,FALSE,hospitality,2023,0.124719652368937
+log_appr_imps_val,28536,1104,3740,FALSE,hospitality,2023,0.131062517521727
+log_total_assessed,28536,902,3558,FALSE,hospitality,2023,0.124684608915055
+log_appr_land_val,6192,513,339,FALSE,medical,2023,0.0547480620155039
+log_appr_imps_val,6192,519,413,FALSE,medical,2023,0.0666989664082687
+log_total_assessed,6192,511,339,FALSE,medical,2023,0.0547480620155039
+log_appr_land_val,96720,9758,7531,FALSE,com_other,2023,0.0778639371381307
+log_appr_imps_val,96720,9338,3427,FALSE,com_other,2023,0.0354321753515302
+log_total_assessed,96720,9742,7531,FALSE,com_other,2023,0.0778639371381307
+log_appr_land_val,2341536,26048,119946,FALSE,condo,2023,0.0512253495141651
+log_appr_imps_val,2341536,26662,118119,FALSE,condo,2023,0.050445092452134
+log_total_assessed,2341536,25956,117262,FALSE,condo,2023,0.0500790933814385
+log_appr_land_val,185750,7492,10734,FALSE,apt,2024,0.0577873485868102
+log_appr_imps_val,185750,13867,11416,FALSE,apt,2024,0.0614589502018843
+log_total_assessed,185750,7440,10733,FALSE,apt,2024,0.0577819650067295
+log_appr_land_val,39450,2829,2304,FALSE,office,2024,0.0584030418250951
+log_appr_imps_val,39450,3679,2696,FALSE,office,2024,0.068339670468948
+log_total_assessed,39450,2829,2304,FALSE,office,2024,0.0584030418250951
+log_appr_land_val,72375,3024,3834,FALSE,industrial,2024,0.0529740932642487
+log_appr_imps_val,72375,3482,4087,FALSE,industrial,2024,0.0564697754749568
+log_total_assessed,72375,3037,3789,FALSE,industrial,2024,0.0523523316062176
+log_appr_land_val,50300,1382,2507,FALSE,retail,2024,0.0498409542743539
+log_appr_imps_val,50300,1875,2602,FALSE,retail,2024,0.0517296222664016
+log_total_assessed,50300,1381,2507,FALSE,retail,2024,0.0498409542743539
+log_appr_land_val,29725,944,3703,FALSE,hospitality,2024,0.12457527333894
+log_appr_imps_val,29725,1159,4100,FALSE,hospitality,2024,0.137931034482759
+log_total_assessed,29725,944,3702,FALSE,hospitality,2024,0.124541631623213
+log_appr_land_val,6450,550,363,FALSE,medical,2024,0.0562790697674419
+log_appr_imps_val,6450,558,437,FALSE,medical,2024,0.0677519379844961
+log_total_assessed,6450,548,363,FALSE,medical,2024,0.0562790697674419
+log_appr_land_val,100750,10422,8251,FALSE,com_other,2024,0.0818957816377171
+log_appr_imps_val,100750,10036,3787,FALSE,com_other,2024,0.0375880893300248
+log_total_assessed,100750,10405,8251,FALSE,com_other,2024,0.0818957816377171
+log_appr_land_val,2439100,26922,120042,FALSE,condo,2024,0.0492156943134763
+log_appr_imps_val,2439100,27539,118215,FALSE,condo,2024,0.0484666475339265
+log_total_assessed,2439100,26817,117358,FALSE,condo,2024,0.0481152884260588

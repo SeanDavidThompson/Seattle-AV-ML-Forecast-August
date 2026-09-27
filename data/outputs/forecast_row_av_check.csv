@@ -1,0 +1,139 @@
+# CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.
+# For each origin year T the parcel models were trained only on assessment
+# data through tax year T, and the forecast for T+1 onward was seeded from
+# values observed through T.  But every macro driver - NWMLS housing series,
+# OERF/econ series, CoStar market series, TRS construction-sales series - was
+# fed in at its current (2026) vintage for every forecast year, including
+# revisions.  The result measures how well the parcel models turn a KNOWN
+# macro path into assessed values.  It does not measure how well the pipeline
+# would have forecast in year T, when those paths were themselves forecasts.
+# Real-time accuracy will be worse than these numbers.  Published OEFA
+# forecasts placed alongside them were genuinely ex-ante.
+# 
+# RETROFIT HELD FIXED.  Missing historical residential values were imputed
+# once, by the production retrofit models fit on data through 2026, and those
+# imputed values are reused for every origin.  The imputed panel is the base
+# the extend and forecast steps work from, so imputation shapes the forecast
+# path wherever a parcel's history has gaps, even though the parcel models
+# were trained on observed values only.  A strict backtest would re-fit the
+# retrofit through T.  This is a known source of optimism.  Tables with
+# pop = seed_observed are restricted to parcels with an observed value at the
+# origin year, where imputation does not touch the seed.
+# 
+# KCA area-report anchors, where used (anchored = TRUE), are the year-T
+# reports.  Commercial/condo forward-fill of missing history uses <= T values
+# only (no backward fill).  Scoring is against observed AV in av_history_cln,
+# never a filled value.  Growth is Seattle, matched-parcel, existing-parcel
+# growth: it excludes new construction and parcels retired before 2026.
+# OEFA's number is King County total roll growth.
+# 
+# origins = 2019, 2020, 2021, 2022, 2023, 2024 | final_year = 2026 | scenario = baseline | git = unknown | generated = 2026-09-26 23:55:28
+track,n_fc_rows,n_obs_av_in_fc_rows,origin,mode
+res,1164191,0,2019,anchored
+apt,52010,0,2019,anchored
+office,11046,0,2019,anchored
+industrial,20265,0,2019,anchored
+retail,14084,0,2019,anchored
+hospitality,8323,0,2019,anchored
+medical,1806,0,2019,anchored
+com_other,28210,0,2019,anchored
+condo,682948,0,2019,anchored
+res,1164191,0,2019,unanchored
+apt,52010,0,2019,unanchored
+office,11046,0,2019,unanchored
+industrial,20265,0,2019,unanchored
+retail,14084,0,2019,unanchored
+hospitality,8323,0,2019,unanchored
+medical,1806,0,2019,unanchored
+com_other,28210,0,2019,unanchored
+condo,682948,0,2019,unanchored
+res,997878,0,2020,anchored
+apt,44580,0,2020,anchored
+office,9468,0,2020,anchored
+industrial,17370,0,2020,anchored
+retail,12072,0,2020,anchored
+hospitality,7134,0,2020,anchored
+medical,1548,0,2020,anchored
+com_other,24180,0,2020,anchored
+condo,585384,0,2020,anchored
+res,997878,0,2020,unanchored
+apt,44580,0,2020,unanchored
+office,9468,0,2020,unanchored
+industrial,17370,0,2020,unanchored
+retail,12072,0,2020,unanchored
+hospitality,7134,0,2020,unanchored
+medical,1548,0,2020,unanchored
+com_other,24180,0,2020,unanchored
+condo,585384,0,2020,unanchored
+res,831565,0,2021,anchored
+apt,37150,0,2021,anchored
+office,7890,0,2021,anchored
+industrial,14475,0,2021,anchored
+retail,10060,0,2021,anchored
+hospitality,5945,0,2021,anchored
+medical,1290,0,2021,anchored
+com_other,20150,0,2021,anchored
+condo,487820,0,2021,anchored
+res,831565,0,2021,unanchored
+apt,37150,0,2021,unanchored
+office,7890,0,2021,unanchored
+industrial,14475,0,2021,unanchored
+retail,10060,0,2021,unanchored
+hospitality,5945,0,2021,unanchored
+medical,1290,0,2021,unanchored
+com_other,20150,0,2021,unanchored
+condo,487820,0,2021,unanchored
+res,665252,0,2022,anchored
+apt,29720,0,2022,anchored
+office,6312,0,2022,anchored
+industrial,11580,0,2022,anchored
+retail,8048,0,2022,anchored
+hospitality,4756,0,2022,anchored
+medical,1032,0,2022,anchored
+com_other,16120,0,2022,anchored
+condo,390256,0,2022,anchored
+res,665252,0,2022,unanchored
+apt,29720,0,2022,unanchored
+office,6312,0,2022,unanchored
+industrial,11580,0,2022,unanchored
+retail,8048,0,2022,unanchored
+hospitality,4756,0,2022,unanchored
+medical,1032,0,2022,unanchored
+com_other,16120,0,2022,unanchored
+condo,390256,0,2022,unanchored
+res,498939,0,2023,anchored
+apt,22290,0,2023,anchored
+office,4734,0,2023,anchored
+industrial,8685,0,2023,anchored
+retail,6036,0,2023,anchored
+hospitality,3567,0,2023,anchored
+medical,774,0,2023,anchored
+com_other,12090,0,2023,anchored
+condo,292692,0,2023,anchored
+res,498939,0,2023,unanchored
+apt,22290,0,2023,unanchored
+office,4734,0,2023,unanchored
+industrial,8685,0,2023,unanchored
+retail,6036,0,2023,unanchored
+hospitality,3567,0,2023,unanchored
+medical,774,0,2023,unanchored
+com_other,12090,0,2023,unanchored
+condo,292692,0,2023,unanchored
+res,332626,0,2024,anchored
+apt,14860,0,2024,anchored
+office,3156,0,2024,anchored
+industrial,5790,0,2024,anchored
+retail,4024,0,2024,anchored
+hospitality,2378,0,2024,anchored
+medical,516,0,2024,anchored
+com_other,8060,0,2024,anchored
+condo,195128,0,2024,anchored
+res,332626,0,2024,unanchored
+apt,14860,0,2024,unanchored
+office,3156,0,2024,unanchored
+industrial,5790,0,2024,unanchored
+retail,4024,0,2024,unanchored
+hospitality,2378,0,2024,unanchored
+medical,516,0,2024,unanchored
+com_other,8060,0,2024,unanchored
+condo,195128,0,2024,unanchored
