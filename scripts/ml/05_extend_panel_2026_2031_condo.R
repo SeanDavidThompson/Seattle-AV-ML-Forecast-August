@@ -25,8 +25,13 @@ panel_hist <- copy(panel_tbl_retro_condo)
 setDT(panel_hist)
 
 base_yr    <- max(panel_hist$tax_yr, na.rm = TRUE)
-fcst_years <- seq(base_yr + 1L,
-                  get0("forecast_end", envir = .GlobalEnv, ifnotfound = 2032L))
+.fcst_end  <- as.integer(get0("forecast_end", envir = .GlobalEnv, ifnotfound = 2032L))
+# A one-year horizon (base_yr + 1 == forecast_end) is valid; history that
+# already reaches forecast_end would make seq() count backwards.
+if (base_yr >= .fcst_end)
+  stop("condo history already reaches tax_yr ", base_yr,
+       "; nothing to extend to forecast_end = ", .fcst_end)
+fcst_years <- seq.int(base_yr + 1L, .fcst_end)
 message("  Extending condo panel ", base_yr + 1, " – ", max(fcst_years),
         " | units: ",
         uniqueN(panel_hist$parcel_id))

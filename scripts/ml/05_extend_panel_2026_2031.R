@@ -44,7 +44,13 @@ stopifnot(all(c("parcel_id", "tax_yr") %in% names(panel_hist)))
 setorder(panel_hist, parcel_id, tax_yr)
 
 hist_max_yr  <- max(panel_hist$tax_yr, na.rm = TRUE)
-future_years <- (hist_max_yr + 1):get0("forecast_end", envir = .GlobalEnv, ifnotfound = 2032L)
+.fcst_end    <- as.integer(get0("forecast_end", envir = .GlobalEnv, ifnotfound = 2032L))
+# A one-year horizon (hist_max_yr + 1 == forecast_end) is valid; history that
+# already reaches forecast_end would make `:` count backwards.
+if (hist_max_yr >= .fcst_end)
+  stop("res history already reaches tax_yr ", hist_max_yr,
+       "; nothing to extend to forecast_end = ", .fcst_end)
+future_years <- seq.int(hist_max_yr + 1L, .fcst_end)
 
 message("History through tax_yr = ", hist_max_yr)
 message("Extending to: ", paste(future_years, collapse = ", "))

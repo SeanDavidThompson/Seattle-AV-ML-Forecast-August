@@ -8,6 +8,14 @@
 #   source(here::here("scripts", "ml", "backtest_harness.R"))
 #   run_backtest(origins = 2025)            # smoke test first (one horizon)
 #   run_backtest(origins = 2022:2025)       # full triangle
+#   run_backtest(origins = 2025, tracks = "res", seed = 123)
+#
+# seed defaults to CFG$seed; tracks ("all" or a subset of res / com / condo)
+# becomes run_main_ml(prop_scope = ...).  The end-of-run tables score every
+# pred_origin<T>_*.rds in predictions/ (score_origins = "all"), not only the
+# origins of the current call; the CSV header lists the origins scored and
+# the seed / git version each ran with.  git falls back to $AV_ML_VERSION,
+# then a VERSION file at the repo root, then "unknown".
 #
 # Per origin T (in a child Rscript process, fresh heap):
 #   1. stage the production caches into a scratch cache (hard links)
@@ -38,6 +46,27 @@ BT_TRACK_KEYS <- function() {
   c(keys, "com_other", "condo")
 }
 
+# run_backtest(tracks = ...) -> run_main_ml(prop_scope = ...).  "com" is the
+# six commercial subgroups plus com_other.  run_main_ml has no scope for
+# com + condo or res + condo without the other, so those are refused.
+BT_TRACKS <- c("res", "com", "condo")
+bt_prop_scope <- function(tracks) {
+  tracks <- unique(as.character(tracks))
+  if (identical(tracks, "all")) tracks <- BT_TRACKS
+  bad <- setdiff(tracks, BT_TRACKS)
+  if (!length(tracks) || length(bad))
+    stop("tracks must be \"all\" or a subset of ",
+         paste0("\"", BT_TRACKS, "\"", collapse = ", "),
+         if (length(bad)) paste0(" (got ", paste(bad, collapse = ", "), ")"))
+  key <- paste(BT_TRACKS[BT_TRACKS %in% tracks], collapse = "+")
+  scope <- switch(key, "res+com+condo" = "all", "res+com" = "both",
+                  res = "res", com = "com", condo = "condo", NA_character_)
+  if (is.na(scope))
+    stop("tracks = ", key, " has no run_main_ml prop_scope; use \"all\", ",
+         "c(\"res\", \"com\"), or a single track")
+  scope
+}
+
 # Citywide driver columns that get realized values in forecast-year rows
 # (D1).  Anything else constant-within-year is reported and left frozen.
 BT_DRIVER_ALLOWLIST <- "^(econ_|sea_|k_|costar_|cs_|con_sales_)"
@@ -58,13 +87,43 @@ BT_AV_COLS <- c(
 # Header text (D1 / D4).  Goes to stdout, README_backtest.txt, every log,
 # and the top of every metrics CSV as "#" comment lines.
 # =============================================================================
+# Code version for the header.  Order: `git rev-parse` in repo_root; the
+# AV_ML_VERSION environment variable; the first line of <repo_root>/VERSION;
+# "unknown".  Never errors - the scripts are also run from a network-share
+# copy that is not a git checkout, on machines without git.
+bt_git_sha <- function(repo_root = here::here()) {
+  sha <- if (nzchar(Sys.which("git")))
+    tryCatch(suppressWarnings(system2(
+      "git", c("-C", shQuote(repo_root), "rev-parse", "--short", "HEAD"),
+      stdout = TRUE, stderr = FALSE)), error = function(e) character(0))
+  else character(0)
+  if (length(sha) == 1L && is.null(attr(sha, "status")) &&
+      grepl("^[0-9a-f]{4,40}$", trimws(sha)))
+    return(trimws(sha))
+  env <- trimws(Sys.getenv("AV_ML_VERSION"))
+  if (nzchar(env)) return(env)
+  vf <- file.path(repo_root, "VERSION")
+  if (file.exists(vf)) {
+    v <- trimws(readLines(vf, n = 1L, warn = FALSE))
+    if (length(v) && nzchar(v)) return(v)
+  }
+  "unknown"
+}
+
+# "123" when every origin agrees, else "2022: 123, 2025: 456".
+bt_collapse_by_origin <- function(x) {
+  x <- x[!is.na(x)]
+  if (!length(x)) return("unknown")
+  u <- unique(unname(x))
+  if (length(u) == 1L) return(as.character(u))
+  paste0(names(x), ": ", x, collapse = ", ")
+}
+
 bt_header_text <- function(origins = NULL, final_year = 2026L,
-                           scenario = "baseline", git_sha = NULL) {
-  if (is.null(git_sha))
-    git_sha <- tryCatch(
-      trimws(system2("git", c("rev-parse", "--short", "HEAD"), stdout = TRUE,
-                     stderr = FALSE)),
-      error = function(e) "unknown")
+                           scenario = "baseline", git_sha = NULL,
+                           seed = NULL, tracks = NULL,
+                           origins_label = "origins") {
+  if (is.null(git_sha)) git_sha <- bt_git_sha()
   c(
     "CONDITIONAL BACKTEST - NOT AN EX-ANTE FORECAST RECORD.",
     "For each origin year T the parcel models were trained only on assessment",
@@ -95,9 +154,11 @@ bt_header_text <- function(origins = NULL, final_year = 2026L,
     "growth: it excludes new construction and parcels retired before 2026.",
     "OEFA's number is King County total roll growth.",
     "",
-    paste0("origins = ", if (is.null(origins)) "(see rows)"
+    paste0(origins_label, " = ", if (is.null(origins)) "(see rows)"
            else paste(origins, collapse = ", "),
            " | final_year = ", final_year, " | scenario = ", scenario,
+           if (!is.null(tracks)) paste0(" | tracks = ", paste(tracks, collapse = "+")),
+           " | seed = ", if (is.null(seed)) "unknown" else seed,
            " | git = ", git_sha,
            " | generated = ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
   )
@@ -409,7 +470,15 @@ bt_check_area_reports <- function(origins, area_reports_root) {
 bt_run_origin <- function(cfg) {
   origin <- as.integer(cfg$origin)
   t0 <- Sys.time()
-  hdr <- bt_header_text(origin, cfg$final_year, cfg$scenario)
+  # Configs saved before tracks / seed / git_sha were recorded run as before.
+  if (is.null(cfg$tracks))    cfg$tracks    <- BT_TRACKS
+  if (is.null(cfg$git_sha))   cfg$git_sha   <- bt_git_sha(cfg$repo_root)
+  if (is.null(cfg$seed))
+    stop("origin config has no seed; re-save it with run_backtest(seed = ...)")
+  prop_scope <- bt_prop_scope(cfg$tracks)
+  hdr <- bt_header_text(origin, cfg$final_year, cfg$scenario,
+                        git_sha = cfg$git_sha, seed = cfg$seed,
+                        tracks = cfg$tracks)
   message(paste(hdr, collapse = "\n"))
   message("\n=== backtest origin ", origin, " : forecast ", origin + 1L, "-",
           cfg$final_year, " | anchored modes: ",
@@ -437,7 +506,7 @@ bt_run_origin <- function(cfg) {
 
   # ---- 3. pass 1: train + retro(load) + extend -------------------------------
   bt_log("pass 1: run_main_ml(train_through_year = ", origin, ", stop_after = 'extend')")
-  run_main_ml(prop_scope = "all", scenario = cfg$scenario,
+  run_main_ml(prop_scope = prop_scope, scenario = cfg$scenario, seed = cfg$seed,
               panel_replicate = FALSE, model_replicate = TRUE,
               retrofit_replicate = FALSE, extend_replicate = TRUE,
               forecast_only = FALSE, diagnostics_replicate = FALSE,
@@ -452,7 +521,10 @@ bt_run_origin <- function(cfg) {
                                  hist$drivers)
 
   # ---- 5/6. pass 2 per anchor mode --------------------------------------------
-  meta <- list(origin = origin, locf = hist$locf, realized = realized,
+  meta <- list(origin = origin, seed = cfg$seed, git_sha = cfg$git_sha,
+               tracks = cfg$tracks, final_year = cfg$final_year,
+               scenario = cfg$scenario,
+               locf = hist$locf, realized = realized,
                drivers_swapped = lapply(hist$drivers, `[[`, "swapped"),
                drivers_frozen  = lapply(hist$drivers, `[[`, "frozen"),
                n_rows_history = hist$n_rows, anchor_coverage = list(),
@@ -463,7 +535,7 @@ bt_run_origin <- function(cfg) {
     t1 <- Sys.time()
     if (exists("actuals_rate_coverage", envir = .GlobalEnv))
       rm("actuals_rate_coverage", envir = .GlobalEnv)
-    run_main_ml(prop_scope = "all", scenario = cfg$scenario,
+    run_main_ml(prop_scope = prop_scope, scenario = cfg$scenario, seed = cfg$seed,
                 panel_replicate = FALSE, model_replicate = FALSE,
                 retrofit_replicate = FALSE, extend_replicate = FALSE,
                 forecast_only = TRUE, diagnostics_replicate = FALSE,
@@ -676,13 +748,45 @@ bt_seed_coverage <- function(pred) {
        by = .(origin, horizon, track, anchored)][order(track, anchored, origin, horizon)]
 }
 
-bt_score <- function(out_dir, prod_cache, origins, final_year, scenario) {
-  d <- bt_dirs(out_dir, origins[1])
+# Seed / git / tracks each scored origin ran with: its meta (written at the
+# end of the origin), else the config the parent saved before launching it.
+# Returns named character vectors, names = origin.
+bt_origin_provenance <- function(meta_dir, origins) {
+  one <- function(o, field) {
+    for (f in file.path(meta_dir, paste0("origin_", o, c("_meta.rds", "_config.rds")))) {
+      if (!file.exists(f)) next
+      v <- tryCatch(readRDS(f)[[field]], error = function(e) NULL)
+      if (!is.null(v)) return(paste(v, collapse = "+"))
+    }
+    NA_character_
+  }
+  out <- lapply(c(seed = "seed", git = "git_sha", tracks = "tracks"), function(fld)
+    stats::setNames(vapply(origins, one, character(1), field = fld), origins))
+  out
+}
+
+# score_origins = "all" (default) scores every pred_origin<T>_*.rds in the
+# predictions folder, so a run over a subset of origins rewrites the tables
+# for everything scored so far rather than only the origins it just ran.
+# An integer vector restricts to those origins.  write = FALSE skips the CSVs
+# (the smoke check scores one origin in memory).
+bt_score <- function(out_dir, prod_cache, score_origins = "all", final_year,
+                     scenario, write = TRUE) {
+  d <- bt_dirs(out_dir, NA)
   files <- list.files(d$predictions, pattern = "^pred_origin[0-9]+_(un)?anchored\\.rds$",
                       full.names = TRUE)
-  files <- files[as.integer(sub("^pred_origin([0-9]+)_.*$", "\\1", basename(files))) %in% origins]
-  if (!length(files)) stop("no prediction files under ", d$predictions)
-  bt_log("scoring ", length(files), " prediction file(s)")
+  file_origin <- as.integer(sub("^pred_origin([0-9]+)_.*$", "\\1", basename(files)))
+  if (!identical(score_origins, "all")) {
+    keep <- file_origin %in% as.integer(score_origins)
+    files <- files[keep]; file_origin <- file_origin[keep]
+  }
+  if (!length(files))
+    stop("no prediction files under ", d$predictions,
+         if (!identical(score_origins, "all"))
+           paste0(" for origins ", paste(score_origins, collapse = ", ")))
+  origins <- sort(unique(file_origin))
+  bt_log("scoring ", length(files), " prediction file(s), origins ",
+         paste(origins, collapse = ", "))
   obs <- bt_load_actuals(prod_cache)
   pred <- data.table::rbindlist(lapply(files, readRDS), use.names = TRUE)
   pred <- merge(pred, obs, by = c("parcel_id", "tax_yr"), all.x = TRUE)
@@ -694,7 +798,12 @@ bt_score <- function(out_dir, prod_cache, origins, final_year, scenario) {
   pred <- pred[!is.na(obs_total) & obs_total > 0]
   pred <- bt_with_rollups(pred)
 
-  hdr <- bt_header_text(sort(unique(pred$origin)), final_year, scenario)
+  prov <- bt_origin_provenance(d$meta, origins)
+  hdr <- bt_header_text(origins, final_year, scenario,
+                        git_sha = bt_collapse_by_origin(prov$git),
+                        seed    = bt_collapse_by_origin(prov$seed),
+                        tracks  = bt_collapse_by_origin(prov$tracks),
+                        origins_label = "origins scored")
   errors_by_cell    <- bt_score_errors(pred)
   errors_by_horizon <- bt_score_by_horizon(pred)
   errors_by_origin  <- {
@@ -722,19 +831,22 @@ bt_score <- function(out_dir, prod_cache, origins, final_year, scenario) {
       data.table::copy(m$leaks[[tag]])[, `:=`(origin = m$origin, mode = tag)]), fill = TRUE)),
     fill = TRUE)
 
-  bt_write_csv(errors_by_horizon, file.path(out_dir, "errors_by_horizon.csv"), hdr)
-  bt_write_csv(errors_by_cell,    file.path(out_dir, "errors_by_cell.csv"), hdr)
-  bt_write_csv(errors_by_origin,  file.path(out_dir, "errors_by_origin.csv"), hdr)
-  bt_write_csv(growth,            file.path(out_dir, "growth_by_year.csv"), hdr)
-  bt_write_csv(growth_h,          file.path(out_dir, "growth_by_horizon.csv"), hdr)
-  bt_write_csv(seedcov,           file.path(out_dir, "seed_coverage.csv"), hdr)
-  if (nrow(locf))     bt_write_csv(locf,     file.path(out_dir, "locf_backfill_counts.csv"), hdr)
-  if (nrow(anch_com)) bt_write_csv(anch_com, file.path(out_dir, "anchor_coverage_com.csv"), hdr)
-  if (nrow(anch_res)) bt_write_csv(anch_res, file.path(out_dir, "anchor_coverage_res.csv"), hdr)
-  if (nrow(leaks))    bt_write_csv(leaks,    file.path(out_dir, "forecast_row_av_check.csv"), hdr)
-  writeLines(hdr, file.path(out_dir, "README_backtest.txt"))
+  if (isTRUE(write)) {
+    bt_write_csv(errors_by_horizon, file.path(out_dir, "errors_by_horizon.csv"), hdr)
+    bt_write_csv(errors_by_cell,    file.path(out_dir, "errors_by_cell.csv"), hdr)
+    bt_write_csv(errors_by_origin,  file.path(out_dir, "errors_by_origin.csv"), hdr)
+    bt_write_csv(growth,            file.path(out_dir, "growth_by_year.csv"), hdr)
+    bt_write_csv(growth_h,          file.path(out_dir, "growth_by_horizon.csv"), hdr)
+    bt_write_csv(seedcov,           file.path(out_dir, "seed_coverage.csv"), hdr)
+    if (nrow(locf))     bt_write_csv(locf,     file.path(out_dir, "locf_backfill_counts.csv"), hdr)
+    if (nrow(anch_com)) bt_write_csv(anch_com, file.path(out_dir, "anchor_coverage_com.csv"), hdr)
+    if (nrow(anch_res)) bt_write_csv(anch_res, file.path(out_dir, "anchor_coverage_res.csv"), hdr)
+    if (nrow(leaks))    bt_write_csv(leaks,    file.path(out_dir, "forecast_row_av_check.csv"), hdr)
+    writeLines(hdr, file.path(out_dir, "README_backtest.txt"))
+  }
 
-  invisible(list(errors_by_horizon = errors_by_horizon, errors_by_cell = errors_by_cell,
+  invisible(list(header = hdr, origins_scored = origins,
+                 errors_by_horizon = errors_by_horizon, errors_by_cell = errors_by_cell,
                  errors_by_origin = errors_by_origin, growth = growth,
                  growth_by_horizon = growth_h, seed_coverage = seedcov,
                  locf = locf, anchor_coverage_com = anch_com,
@@ -783,14 +895,34 @@ run_backtest <- function(origins        = 2022:2025,
                          score_only     = FALSE,
                          smoke_stop     = TRUE,
                          smoke_min_coverage = 0.5,
-                         smoke_max_err_pp   = 10) {
+                         smoke_max_err_pp   = 10,
+                         # Seed passed to every run_main_ml() call.  Printed
+                         # in the header and saved with each origin.
+                         seed           = if (exists("CFG", envir = .GlobalEnv))
+                                            CFG$seed else NULL,
+                         # "all", or a subset of "res", "com", "condo";
+                         # passed to run_main_ml() as prop_scope.
+                         tracks         = "all",
+                         # Which prediction files the end-of-run tables cover:
+                         # "all" = every origin in the predictions folder,
+                         # including ones from earlier calls; or a vector of
+                         # origins.
+                         score_origins  = "all") {
   stage_mode <- match.arg(stage_mode)
   origins <- sort(as.integer(origins), decreasing = TRUE)   # smoke origin first
   final_year <- as.integer(final_year)
+  # origin == final_year - 1 is a one-year horizon (h = 1 only).
   if (any(origins >= final_year)) stop("origins must be < final_year")
   anchored <- unique(as.logical(anchored))
+  bt_prop_scope(tracks)                                     # validate early
+  tracks <- if (identical(tracks, "all")) BT_TRACKS else BT_TRACKS[BT_TRACKS %in% tracks]
+  if (!score_only && (is.null(seed) || length(seed) != 1 || is.na(seed)))
+    stop("seed must be a single number: pass run_backtest(seed = ...) or ",
+         "source main_ml.R so CFG$seed is defined")
+  git_sha <- bt_git_sha()
   dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-  hdr <- bt_header_text(origins, final_year, scenario)
+  hdr <- bt_header_text(origins, final_year, scenario, git_sha = git_sha,
+                        seed = seed, tracks = tracks)
   message(paste(hdr, collapse = "\n"), "\n")
   writeLines(hdr, file.path(out_dir, "README_backtest.txt"))
 
@@ -807,7 +939,8 @@ run_backtest <- function(origins        = 2022:2025,
                   scenario = scenario, out_dir = out_dir,
                   prod_cache = prod_cache_dir, area_reports_root = area_reports_root,
                   stage_mode = stage_mode, keep_work = keep_work,
-                  repo_root = repo_root,
+                  repo_root = repo_root, seed = seed, tracks = tracks,
+                  git_sha = git_sha,
                   kca_date = if (exists("CFG", envir = .GlobalEnv))
                     CFG$kca_date_data_extracted else NULL)
       d <- bt_dirs(out_dir, .T)
@@ -842,18 +975,24 @@ run_backtest <- function(origins        = 2022:2025,
       }
 
       # smoke check after the first origin
+      # (scored in memory; the CSVs are written once, below, for score_origins)
       if (.T == origins[1] && length(origins) > 1) {
-        sc <- bt_score(out_dir, prod_cache_dir, .T, final_year, scenario)
+        sc <- bt_score(out_dir, prod_cache_dir, .T, final_year, scenario,
+                       write = FALSE)
         ok <- bt_smoke_check(sc$growth, .T, smoke_min_coverage, smoke_max_err_pp)
-        if (!ok && isTRUE(smoke_stop))
+        if (!ok && isTRUE(smoke_stop)) {
+          bt_score(out_dir, prod_cache_dir, score_origins, final_year, scenario)
           stop("smoke check failed on origin ", .T,
                "; not starting the remaining origins (smoke_stop = TRUE). ",
-               "Tables for origin ", .T, " are in ", out_dir)
+               "Tables (score_origins = ",
+               paste(score_origins, collapse = ", "), ") are in ", out_dir)
+        }
       }
     }
   }
 
-  sc <- bt_score(out_dir, prod_cache_dir, origins, final_year, scenario)
+  sc <- bt_score(out_dir, prod_cache_dir, score_origins, final_year, scenario)
+  message("\norigins scored: ", paste(sc$origins_scored, collapse = ", "))
   if (length(origins) == 1)
     bt_smoke_check(sc$growth, origins[1], smoke_min_coverage, smoke_max_err_pp)
 

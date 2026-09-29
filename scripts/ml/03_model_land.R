@@ -213,7 +213,7 @@ impute_predictors <- function(df, outcome_cols) {
     mutate(across(all_of(num_cols),
                   ~ if_else(is.na(.x), median(.x, na.rm = TRUE), .x))) %>%
     mutate(across(all_of(fct_cols),
-                  ~ forcats::fct_explicit_na(.x, na_level = "Unknown")))
+                  ~ forcats::fct_na_value_to_level(.x, level = "Unknown")))
 }
 
 # ------------------------------------------------------------------

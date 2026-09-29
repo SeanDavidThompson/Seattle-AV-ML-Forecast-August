@@ -222,7 +222,12 @@ for (yr in fcst_years) {
     log_appr_land_val_lag1 = pred_log_land,
     log_appr_imps_val_lag1 = pred_log_imps
   )]
-  yr_data[, c("log_appr_land_val_lag1", "log_appr_imps_val_lag1") := NULL]
+  # Drop stale lag columns before merge (only those present — the condo
+  # extend panel carries no log_appr_imps_val_lag1, and := NULL on an
+  # absent column warns once per forecast year)
+  .stale <- intersect(c("log_appr_land_val_lag1", "log_appr_imps_val_lag1"),
+                      names(yr_data))
+  if (length(.stale)) yr_data[, (.stale) := NULL]
   yr_data <- merge(yr_data, lag_dt, by = "parcel_id", all.x = TRUE)
 
   # lag2 for land from panel_ext t-2 predictions
@@ -230,7 +235,8 @@ for (yr in fcst_years) {
     lag2_dt <- panel_ext[tax_yr == yr - 2L,
                           .(parcel_id,
                             log_appr_land_val_lag2 = pred_log_land_val)]
-    yr_data[, "log_appr_land_val_lag2" := NULL]
+    if ("log_appr_land_val_lag2" %in% names(yr_data))
+      yr_data[, "log_appr_land_val_lag2" := NULL]
     yr_data <- merge(yr_data, lag2_dt, by = "parcel_id", all.x = TRUE)
   }
 
