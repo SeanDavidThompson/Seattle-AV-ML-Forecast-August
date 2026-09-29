@@ -440,9 +440,13 @@ run_main_ml <- function(replicate             = CFG$replicate,
     stop("prop_scope must be one of: ",
          paste(valid_scopes, collapse = ", "))
 
+  # forecast_start == forecast_end is a one-year horizon (e.g. backtest
+  # origin 2025 forecasting 2026 only).
   if (!is.numeric(forecast_start) || !is.numeric(forecast_end) ||
-      forecast_start >= forecast_end)
-    stop("forecast_start must be a year < forecast_end")
+      length(forecast_start) != 1 || length(forecast_end) != 1 ||
+      is.na(forecast_start) || is.na(forecast_end) ||
+      forecast_start > forecast_end)
+    stop("forecast_start must be a year <= forecast_end")
   forecast_start <- as.integer(forecast_start)
   forecast_end   <- as.integer(forecast_end)
 

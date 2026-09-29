@@ -161,7 +161,7 @@ impute_for_prediction <- function(newdata, train_df, dv) {
       newdata[[cn]][is.na(newdata[[cn]])] <- median(tr, na.rm = TRUE)
     } else if (is.factor(tr)) {
       newdata[[cn]] <- factor(as.character(newdata[[cn]]), levels = levels(tr))
-      newdata[[cn]] <- forcats::fct_explicit_na(newdata[[cn]], na_level = "Unknown")
+      newdata[[cn]] <- forcats::fct_na_value_to_level(newdata[[cn]], level = "Unknown")
     }
   }
   newdata
@@ -295,7 +295,12 @@ for (scenario_name in scenario) {  # single iteration — kept for structure
 
   # Determine history boundary and forecast range dynamically
   hist_max_yr <- max(panel_all[!is.na(total_assessed_filled), tax_yr], na.rm = TRUE)
-  fcst_years  <- (hist_max_yr + 1):2031
+  # seq_len() form: a one-year horizon (hist_max_yr + 1 == forecast_end) gives
+  # one year, and hist_max_yr >= forecast_end gives none, never a descending
+  # sequence the way `:` would.
+  .fcst_end   <- as.integer(get0("forecast_end", envir = .GlobalEnv,
+                                 ifnotfound = 2031L))
+  fcst_years  <- hist_max_yr + seq_len(max(0L, .fcst_end - hist_max_yr))
   message("History max year: ", hist_max_yr,
           " | Forecasting: ", paste(fcst_years, collapse = ", "))
 

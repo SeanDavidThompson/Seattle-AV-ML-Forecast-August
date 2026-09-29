@@ -310,7 +310,7 @@ impute_for_prediction <- function(newdata, train_df, dv_obj) {
     if (!"Unknown" %in% levels(newdata[[cn]])) {
       levels(newdata[[cn]]) <- c(levels(newdata[[cn]]), "Unknown")
     }
-    newdata[[cn]] <- forcats::fct_explicit_na(newdata[[cn]], na_level = "Unknown")
+    newdata[[cn]] <- forcats::fct_na_value_to_level(newdata[[cn]], level = "Unknown")
   }
   
   newdata
