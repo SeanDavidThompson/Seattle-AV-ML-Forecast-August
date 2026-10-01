@@ -1,49 +1,81 @@
-# ---- ML origin 2025 (anchored + unanchored) vs old 2025 vintages, TY2026 ----
-library(tidyr)
-stopifnot(exists("old"), exists("read_bt"), exists("group_map"))
-
-gy25 <- as_tibble(read_bt("growth_by_year.csv")) |>
-  filter(pop == "seed_observed", origin == 2025, tax_yr == 2026, horizon == 1)
-print(count(gy25, anchored))   # expect TRUE and FALSE, one row per track each
-
-base25   <- gy25 |> filter(anchored)  |> select(track, av_base, act_g = g_act, ml_anch_g = g_pred)
-unanch25 <- gy25 |> filter(!anchored) |> select(track, ml_unanch_g = g_pred)
-
-cmp2 <- old |>
-  mutate(track = unname(group_map[group])) |>
-  filter(!is.na(track), tax_yr == 2026) |>
-  inner_join(base25, by = "track") |>
-  left_join(unanch25, by = "track") |>
-  mutate(old_diff_B       = av_base * (old_g       - act_g) / 1e9,
-         ml_anch_diff_B   = av_base * (ml_anch_g   - act_g) / 1e9,
-         ml_unanch_diff_B = av_base * (ml_unanch_g - act_g) / 1e9)
-
-# 1) Growth rates (%): actual, each old vintage, ML anchored, ML unanchored
-cmp2 |>
-  select(group, vintage, act_g, old_g, ml_anch_g, ml_unanch_g) |>
-  pivot_wider(names_from = vintage, values_from = old_g) |>
-  mutate(across(where(is.double), \(x) round(100 * x, 2))) |>
-  print(n = Inf)
-
-# 2) Dollar miss ($B, forecast minus actual) on the same TY2025 base
-cmp2 |>
-  select(group, vintage, old_diff_B, ml_anch_diff_B, ml_unanch_diff_B) |>
-  pivot_wider(names_from = vintage, values_from = old_diff_B) |>
-  mutate(across(where(is.double), \(x) round(x, 2))) |>
-  print(n = Inf)
-
-# 3) Totals: net and gross, with and without Hotels
-tot_old <- cmp2 |>
-  group_by(model = vintage) |>
-  summarise(net_B = sum(old_diff_B), gross_B = sum(abs(old_diff_B)),
-            gross_ex_hotels_B = sum(abs(old_diff_B[group != "Hotels"])), .groups = "drop")
-one <- cmp2 |> filter(vintage == first(vintage))
-tot_ml <- tibble(
-  model             = c("ML anchored", "ML unanchored"),
-  net_B             = c(sum(one$ml_anch_diff_B), sum(one$ml_unanch_diff_B)),
-  gross_B           = c(sum(abs(one$ml_anch_diff_B)), sum(abs(one$ml_unanch_diff_B))),
-  gross_ex_hotels_B = c(sum(abs(one$ml_anch_diff_B[one$group != "Hotels"])),
-                        sum(abs(one$ml_unanch_diff_B[one$group != "Hotels"]))))
-bind_rows(tot_old, tot_ml) |> mutate(across(where(is.double), \(x) round(x, 2))) |> print()
-
-fwrite(cmp2, here("data", "outputs", "backtest", "old2025_vs_ml2025_ty2026.csv"))
+> fwrite(cmp, here("data", "outputs", "backtest", "old2025_vs_actual_ty2026.csv"))
+> # ---- ML origin 2025 (anchored + unanchored) vs old 2025 vintages, TY2026 ----
+> library(tidyr)
+> stopifnot(exists("old"), exists("read_bt"), exists("group_map"))
+> 
+> gy25 <- as_tibble(read_bt("growth_by_year.csv")) |>
++     filter(pop == "seed_observed", origin == 2025, tax_yr == 2026, horizon == 1)
+> print(count(gy25, anchored))   # expect TRUE and FALSE, one row per track each
+# A tibble: 2 × 2
+  anchored     n
+  <lgl>    <int>
+1 FALSE       10
+2 TRUE        10
+> 
+> base25   <- gy25 |> filter(anchored)  |> select(track, av_base, act_g = g_act, ml_anch_g = g_pred)
+> unanch25 <- gy25 |> filter(!anchored) |> select(track, ml_unanch_g = g_pred)
+> 
+> cmp2 <- old |>
++     mutate(track = unname(group_map[group])) |>
++     filter(!is.na(track), tax_yr == 2026) |>
++     inner_join(base25, by = "track") |>
++     left_join(unanch25, by = "track") |>
++     mutate(old_diff_B       = av_base * (old_g       - act_g) / 1e9,
++            ml_anch_diff_B   = av_base * (ml_anch_g   - act_g) / 1e9,
++            ml_unanch_diff_B = av_base * (ml_unanch_g - act_g) / 1e9)
+> 
+> # 1) Growth rates (%): actual, each old vintage, ML anchored, ML unanchored
+> cmp2 |>
++     select(group, vintage, act_g, old_g, ml_anch_g, ml_unanch_g) |>
++     pivot_wider(names_from = vintage, values_from = old_g) |>
++     mutate(across(where(is.double), \(x) round(100 * x, 2))) |>
++     print(n = Inf)
+# A tibble: 6 × 7
+  group        act_g ml_anch_g ml_unanch_g `Apr 2025` `Aug 2025` `Oct 2025`
+  <chr>        <dbl>     <dbl>       <dbl>      <dbl>      <dbl>      <dbl>
+1 Hotels       -0.91     -0.27        0.63      22.0       20.2       19.4 
+2 Industrial    3.1       0.98        3.88       1.01      -0.02       2.37
+3 Multifamily   4.4       3.4        -1.55      -0.04      -0.93      -0.93
+4 Major Office -5.92     -3.18      -10.7       -7.75      -7.95      -4.52
+5 Retail        0.87      1.29        1.72       0.49       2.5        2.13
+6 Residential   4.65      4.37        6.31       3.61       2.08       2.88
+> 
+> # 2) Dollar miss ($B, forecast minus actual) on the same TY2025 base
+> cmp2 |>
++     select(group, vintage, old_diff_B, ml_anch_diff_B, ml_unanch_diff_B) |>
++     pivot_wider(names_from = vintage, values_from = old_diff_B) |>
++     mutate(across(where(is.double), \(x) round(x, 2))) |>
++     print(n = Inf)
+# A tibble: 6 × 6
+  group        ml_anch_diff_B ml_unanch_diff_B `Apr 2025` `Aug 2025` `Oct 2025`
+  <chr>                 <dbl>            <dbl>      <dbl>      <dbl>      <dbl>
+1 Hotels                 0.04             0.09       1.35       1.24       1.2 
+2 Industrial            -0.25             0.09      -0.24      -0.37      -0.09
+3 Multifamily           -0.39            -2.33      -1.73      -2.08      -2.08
+4 Major Office           0.59            -1.03      -0.39      -0.44       0.3 
+5 Retail                 0.03             0.06      -0.03       0.12       0.1 
+6 Residential           -0.44             2.62      -1.64      -4.06      -2.79
+> 
+> # 3) Totals: net and gross, with and without Hotels
+> tot_old <- cmp2 |>
++     group_by(model = vintage) |>
++     summarise(net_B = sum(old_diff_B), gross_B = sum(abs(old_diff_B)),
++               gross_ex_hotels_B = sum(abs(old_diff_B[group != "Hotels"])), .groups = "drop")
+> one <- cmp2 |> filter(vintage == first(vintage))
+> tot_ml <- tibble(
++     model             = c("ML anchored", "ML unanchored"),
++     net_B             = c(sum(one$ml_anch_diff_B), sum(one$ml_unanch_diff_B)),
++     gross_B           = c(sum(abs(one$ml_anch_diff_B)), sum(abs(one$ml_unanch_diff_B))),
++     gross_ex_hotels_B = c(sum(abs(one$ml_anch_diff_B[one$group != "Hotels"])),
++                           sum(abs(one$ml_unanch_diff_B[one$group != "Hotels"]))))
+> bind_rows(tot_old, tot_ml) |> mutate(across(where(is.double), \(x) round(x, 2))) |> print()
+# A tibble: 5 × 4
+  model         net_B gross_B gross_ex_hotels_B
+  <chr>         <dbl>   <dbl>             <dbl>
+1 Apr 2025      -2.69    5.4               4.05
+2 Aug 2025      -5.58    8.31              7.07
+3 Oct 2025      -3.36    6.56              5.36
+4 ML anchored   -0.41    1.74              1.7 
+5 ML unanchored -0.49    6.23              6.14
+> 
+> fwrite(cmp2, here("data", "outputs", "backtest", "old2025_vs_ml2025_ty2026.csv"))
