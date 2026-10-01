@@ -1,91 +1,49 @@
-> # old2025_rates_on_ml_base.R
-> # Applies the Apr/Aug/Oct 2025 old-model growth rates to the ML pipeline's
-> # tax-year-2025 base (matched existing parcels, by track) and computes the
-> # tax-year-2026 AV each vintage implies vs actual, in dollars.
-> #
-> # Year mapping: the forecast_all_* files are labelled by ASSESSMENT year,
-> # so file year Y = tax year Y + 1 (checked on residential history:
-> # file 2023 -7.3% ~ TY2024 actual -7.6%; file 2024 +7.6-8.7% ~ TY2025 actual +8.0%).
-> # Save to ad_hoc/ and source().
-> 
-> library(dplyr); library(readr); library(data.table); library(here)
-> 
-> read_bt <- function(f) {
-+   x <- readLines(here("data", "outputs", "backtest", f))
-+   fread(text = x[!startsWith(x, "#")])
-+ }
-> 
-> group_map <- c(Hotels = "hospitality", Industrial = "industrial", Multifamily = "apt",
-+                `Major Office` = "office", Retail = "retail", Residential = "res")
-> 
-> files <- c(`Apr 2025` = "forecast_all_apr2026-09-29.csv",
-+            `Aug 2025` = "forecast_all_aug2026-09-29.csv",
-+            `Oct 2025` = "forecast_all_oct2026-09-29.csv")
-> 
-> old <- bind_rows(lapply(names(files), \(v)
-+   read_csv(here("data", "wrangled", files[[v]]), show_col_types = FALSE) |>
-+     transmute(vintage = v, group = forecast_group, tax_yr = year + 1, old_g = gyy)))
-New names:                                                                                                                                                          
-• `` -> `...1`
-New names:                                                                                                                                                          
-• `` -> `...1`
-New names:                                                                                                                                                          
-• `` -> `...1`
-> 
-> # Base + actuals from the backtest: for each tax year, take the latest origin's row
-> gy <- read_bt("growth_by_year.csv")[pop == "seed_observed" & anchored == TRUE]
-> base <- as_tibble(gy) |>
-+   group_by(track, tax_yr) |> slice_max(origin, n = 1) |> ungroup() |>
-+   transmute(track, tax_yr, av_base, act_g = g_act,
-+             ml_prev_origin = origin, ml_prev_h = horizon, ml_prev_g = g_pred)
-> 
-> cmp <- old |>
-+   mutate(track = unname(group_map[group])) |>
-+   filter(!is.na(track), tax_yr == 2026) |>          # only year with both a forecast and an actual
-+   inner_join(base, by = c("track", "tax_yr")) |>
-+   mutate(base_B   = av_base / 1e9,
-+          act_B    = av_base * (1 + act_g) / 1e9,
-+          old_B    = av_base * (1 + old_g) / 1e9,
-+          diff_B   = old_B - act_B,
-+          err_pp   = 100 * (old_g - act_g),
-+          ml_prev_diff_B = av_base * (ml_prev_g - act_g) / 1e9)
-> 
-> cmp |>
-+   select(vintage, group, base_B, act_g, old_g, err_pp, act_B, old_B, diff_B,
-+          ml_prev_g, ml_prev_diff_B) |>
-+   mutate(across(c(act_g, old_g, ml_prev_g), \(x) round(100 * x, 2)),
-+          across(where(is.double), \(x) round(x, 2))) |>
-+   print(n = Inf)
-# A tibble: 18 × 11
-   vintage  group        base_B act_g old_g err_pp  act_B  old_B diff_B ml_prev_g ml_prev_diff_B
-   <chr>    <chr>         <dbl> <dbl> <dbl>  <dbl>  <dbl>  <dbl>  <dbl>     <dbl>          <dbl>
- 1 Apr 2025 Hotels         5.89 -0.91 22.0   23.0    5.84   7.19   1.35     -0.27           0.04
- 2 Apr 2025 Industrial    11.7   3.1   1.01  -2.09  12.1   11.8   -0.24      0.98          -0.25
- 3 Apr 2025 Multifamily   39.0   4.4  -0.04  -4.44  40.8   39.0   -1.73      3.4           -0.39
- 4 Apr 2025 Major Office  21.6  -5.92 -7.75  -1.82  20.4   20.0   -0.39     -3.18           0.59
- 5 Apr 2025 Retail         7.52  0.87  0.49  -0.38   7.59   7.56  -0.03      1.29           0.03
- 6 Apr 2025 Residential  158.    4.65  3.61  -1.04 165.   164.    -1.64      4.37          -0.44
- 7 Aug 2025 Hotels         5.89 -0.91 20.2   21.1    5.84   7.09   1.24     -0.27           0.04
- 8 Aug 2025 Industrial    11.7   3.1  -0.02  -3.12  12.1   11.7   -0.37      0.98          -0.25
- 9 Aug 2025 Multifamily   39.0   4.4  -0.93  -5.34  40.8   38.7   -2.08      3.4           -0.39
-10 Aug 2025 Major Office  21.6  -5.92 -7.95  -2.02  20.4   19.9   -0.44     -3.18           0.59
-11 Aug 2025 Retail         7.52  0.87  2.5    1.63   7.59   7.71   0.12      1.29           0.03
-12 Aug 2025 Residential  158.    4.65  2.08  -2.57 165.   161.    -4.06      4.37          -0.44
-13 Oct 2025 Hotels         5.89 -0.91 19.4   20.4    5.84   7.04   1.2      -0.27           0.04
-14 Oct 2025 Industrial    11.7   3.1   2.37  -0.73  12.1   12.0   -0.09      0.98          -0.25
-15 Oct 2025 Multifamily   39.0   4.4  -0.93  -5.33  40.8   38.7   -2.08      3.4           -0.39
-16 Oct 2025 Major Office  21.6  -5.92 -4.52   1.41  20.4   20.7    0.3      -3.18           0.59
-17 Oct 2025 Retail         7.52  0.87  2.13   1.27   7.59   7.68   0.1       1.29           0.03
-18 Oct 2025 Residential  158.    4.65  2.88  -1.77 165.   162.    -2.79      4.37          -0.44
-> 
-> cmp |> group_by(vintage) |>
-+   summarise(net_diff_B = sum(diff_B), gross_diff_B = sum(abs(diff_B)), .groups = "drop") |>
-+   print()
-# A tibble: 3 × 3
-  vintage  net_diff_B gross_diff_B
-  <chr>         <dbl>        <dbl>
-1 Apr 2025      -2.69         5.40
-2 Aug 2025      -5.58         8.31
-3 Oct 2025      -3.36         6.56
-> 
-> fwrite(cmp, here("data", "outputs", "backtest", "old2025_vs_actual_ty2026.csv"))
+# ---- ML origin 2025 (anchored + unanchored) vs old 2025 vintages, TY2026 ----
+library(tidyr)
+stopifnot(exists("old"), exists("read_bt"), exists("group_map"))
+
+gy25 <- as_tibble(read_bt("growth_by_year.csv")) |>
+  filter(pop == "seed_observed", origin == 2025, tax_yr == 2026, horizon == 1)
+print(count(gy25, anchored))   # expect TRUE and FALSE, one row per track each
+
+base25   <- gy25 |> filter(anchored)  |> select(track, av_base, act_g = g_act, ml_anch_g = g_pred)
+unanch25 <- gy25 |> filter(!anchored) |> select(track, ml_unanch_g = g_pred)
+
+cmp2 <- old |>
+  mutate(track = unname(group_map[group])) |>
+  filter(!is.na(track), tax_yr == 2026) |>
+  inner_join(base25, by = "track") |>
+  left_join(unanch25, by = "track") |>
+  mutate(old_diff_B       = av_base * (old_g       - act_g) / 1e9,
+         ml_anch_diff_B   = av_base * (ml_anch_g   - act_g) / 1e9,
+         ml_unanch_diff_B = av_base * (ml_unanch_g - act_g) / 1e9)
+
+# 1) Growth rates (%): actual, each old vintage, ML anchored, ML unanchored
+cmp2 |>
+  select(group, vintage, act_g, old_g, ml_anch_g, ml_unanch_g) |>
+  pivot_wider(names_from = vintage, values_from = old_g) |>
+  mutate(across(where(is.double), \(x) round(100 * x, 2))) |>
+  print(n = Inf)
+
+# 2) Dollar miss ($B, forecast minus actual) on the same TY2025 base
+cmp2 |>
+  select(group, vintage, old_diff_B, ml_anch_diff_B, ml_unanch_diff_B) |>
+  pivot_wider(names_from = vintage, values_from = old_diff_B) |>
+  mutate(across(where(is.double), \(x) round(x, 2))) |>
+  print(n = Inf)
+
+# 3) Totals: net and gross, with and without Hotels
+tot_old <- cmp2 |>
+  group_by(model = vintage) |>
+  summarise(net_B = sum(old_diff_B), gross_B = sum(abs(old_diff_B)),
+            gross_ex_hotels_B = sum(abs(old_diff_B[group != "Hotels"])), .groups = "drop")
+one <- cmp2 |> filter(vintage == first(vintage))
+tot_ml <- tibble(
+  model             = c("ML anchored", "ML unanchored"),
+  net_B             = c(sum(one$ml_anch_diff_B), sum(one$ml_unanch_diff_B)),
+  gross_B           = c(sum(abs(one$ml_anch_diff_B)), sum(abs(one$ml_unanch_diff_B))),
+  gross_ex_hotels_B = c(sum(abs(one$ml_anch_diff_B[one$group != "Hotels"])),
+                        sum(abs(one$ml_unanch_diff_B[one$group != "Hotels"]))))
+bind_rows(tot_old, tot_ml) |> mutate(across(where(is.double), \(x) round(x, 2))) |> print()
+
+fwrite(cmp2, here("data", "outputs", "backtest", "old2025_vs_ml2025_ty2026.csv"))
