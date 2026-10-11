@@ -1,24 +1,270 @@
-Property type	Old, April	Old, August	Old, October	ML with area reports	ML model only
-Residential	4.5	2.5	1.9	0.2	7.9
-Apartments	2.3	3.3	4.9	1.3	6.3
-Major office	10.9	9.8	3.9	2.7	10.2
+> setwd("Z:/AV ML Model Oct")
+> source("scripts/av_reconcile_certified.R")
+── Attaching core tidyverse packages ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse 2.0.0 ──
+✔ dplyr     1.2.1     ✔ readr     2.2.0
+✔ forcats   1.0.1     ✔ stringr   1.6.0
+✔ ggplot2   4.0.3     ✔ tibble    3.3.1
+✔ lubridate 1.9.5     ✔ tidyr     1.3.2
+✔ purrr     1.2.2     
+── Conflicts ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse_conflicts() ──
+✖ dplyr::filter() masks stats::filter()
+✖ dplyr::lag()    masks stats::lag()
+ℹ Use the conflicted package to force all conflicts to become errors
+data.table 1.18.4 using 8 threads (see ?getDTthreads).  Latest news: r-datatable.com
 
-Property type	TY2025 base ($B)	Old, April	Old, August	Old, October	ML with area reports	ML model only
-Residential	158	-1.64	-4.06	-2.79	-0.44	+2.62
-Apartments	39.0	-1.73	-2.08	-2.08	-0.39	-2.33
-Major office	21.6	-0.39	-0.44	+0.30	+0.59	-1.03
-Industrial	11.7	-0.24	-0.37	-0.09	-0.25	+0.09
-Retail	7.5	-0.03	+0.12	+0.10	+0.03	+0.06
-Net		-4.03	-6.83	-4.56	-0.46	-0.59
-Total miss, ignoring sign		4.05	7.07	5.36	1.70	6.14
+Attaching package: ‘data.table’
 
-Property type	Vintage year (forecast for)	Actual	Old, April	Old, August	Old, October	ML with area reports	ML model only
-Residential	2025 (TY2026)	+4.7	+3.6	+2.1	+2.9	+4.4	+6.3
-Residential	2024 (TY2025)	+8.0	+1.7	+4.5	+5.0	+7.9	+4.1
-Residential	2023 (TY2024)	-7.6	-1.3	-6.4	-8.4	-7.4	+10.5
-Apartments	2025 (TY2026)	+4.4	0.0	-0.9	-0.9	+3.4	-1.6
-Apartments	2024 (TY2025)	-6.0	-5.6	-8.4	+0.2	-6.4	+4.1
-Apartments	2023 (TY2024)	+0.1	+2.1	+2.2	-3.1	-2.5	-2.7
-Major office	2025 (TY2026)	-5.9	-7.8	-8.0	-4.5	-3.2	-10.7
-Major office	2024 (TY2025)	-24.7	-4.9	-7.4	-19.8	-22.9	-2.8
-Major office	2023 (TY2024)	-5.3	-16.5	-15.5	-10.7	-1.9	-1.5
+The following objects are masked from ‘package:lubridate’:
+
+    hour, isoweek, isoyear, mday, minute, month, quarter, second, wday, week, yday, year
+
+The following objects are masked from ‘package:dplyr’:
+
+    between, first, last
+
+The following object is masked from ‘package:purrr’:
+
+    transpose
+
+The following object is masked from ‘package:base’:
+
+    %notin%
+
+
+Attaching package: ‘scales’
+
+The following object is masked from ‘package:purrr’:
+
+    discard
+
+The following object is masked from ‘package:readr’:
+
+    col_factor
+
+here() starts at Z:/AV ML Model Oct
+=== Certificate decomposition ($B) ===
+# A tibble: 5 × 5
+  tax_yr grand total    pp  real
+   <int> <dbl> <dbl> <dbl> <dbl>
+1   2022  276.  275.  7.49  268.
+2   2023  309.  308.  8.54  299.
+3   2024  301.  299.  8.95  290.
+4   2025  300.  298.  9.07  289.
+5   2026  309.  306.  9.33  297.
+=== Historical Appraised Shares ===
+# A tibble: 5 × 4
+  tax_yr   res   com condo
+   <int> <dbl> <dbl> <dbl>
+1   2022 0.516 0.375 0.109
+2   2023 0.540 0.355 0.104
+3   2024 0.517 0.368 0.115
+4   2025 0.559 0.332 0.109
+5   2026 0.566 0.324 0.110
+
+=== Certified AV by Property Type ($B) ===
+# A tibble: 5 × 5
+  tax_yr   res   com condo    pp
+   <int> <dbl> <dbl> <dbl> <dbl>
+1   2022  138. 100.   29.2  7.49
+2   2023  162. 106.   31.2  8.54
+3   2024  150. 107.   33.4  8.95
+4   2025  161.  96.0  31.4  9.07
+5   2026  168.  96.3  32.8  9.33
+
+Loading forecast growth rates...
+  Res baseline growth rates:
+   tax_yr  track          gyy n_matched scenario
+    <int> <char>        <num>     <int>   <char>
+1:   2027    res -0.008665101    166330 baseline
+2:   2028    res  0.045499653    166330 baseline
+3:   2029    res  0.040806870    166330 baseline
+4:   2030    res  0.045428672    166330 baseline
+5:   2031    res  0.045948656    166330 baseline
+  Condo baseline growth rates:
+   tax_yr  track        gyy n_matched scenario
+    <int> <char>      <num>     <int>   <char>
+1:   2027  condo 0.04565743     35771 baseline
+2:   2028  condo 0.04663497     97564 baseline
+3:   2029  condo 0.04809795     97564 baseline
+4:   2030  condo 0.05095919     97564 baseline
+5:   2031  condo 0.05119883     97564 baseline
+
+=== KCA condo area reports (assessment 2026 -> TY2027), weighted by Seattle units' TY2026 AV ===
+  neighborhood source: EXTR_Parcel SpecSubArea (2026-09-25) | matched 34,550 of 35,771 units, 90.1% of AV
+            report             area_name pct_change seattle_units seattle_av_2026_B
+            <char>                <char>     <char>         <int>             <num>
+ commercial/700_02      Downtown Seattle     -3.70%          7080             4.635
+ commercial/700_08 Northwest King County     -2.40%          9152             3.920
+ commercial/700_01          Capitol Hill     -5.70%          7475             3.637
+ commercial/700_03 Queen Anne / Magnolia     -2.80%          6862             3.462
+ commercial/700_07         South Seattle     -6.50%          3981             2.016
+  VALUE-WEIGHTED SEATTLE CONDO REPORT RATE: -3.9663%  (CONDO_2027_RATE <- -0.039663)
+  PP_ECON_DRIVER not set — columns available in econ_fcst_2026_2031_baseline.rds:
+    econ_employment_thous_yoy_lag1
+    econ_services_providing_yoy_lag1
+    econ_population_thous_yoy_lag1
+    econ_wholesale_and_retail_trade_yoy_lag1
+    econ_housing_permits_thous_yoy_lag1
+    econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_yoy_lag1
+    econ_seattle_msa_cpi_u_1982_1984_100_yoy_lag1
+    econ_employment_thous_lvl_lag1
+    econ_services_providing_lvl_lag1
+    econ_population_thous_lvl_lag1
+    econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
+    econ_seattle_msa_cpi_u_1982_1984_100_lvl_lag1
+  ⚠️  PP growth fallback (driver not configured) — using 2022-2026 CAGR 5.65% for baseline (scenario-invariant)
+  PP_ECON_DRIVER not set — columns available in econ_fcst_2026_2031_optimistic.rds:
+    econ_employment_thous_yoy_lag1
+    econ_services_providing_yoy_lag1
+    econ_population_thous_yoy_lag1
+    econ_wholesale_and_retail_trade_yoy_lag1
+    econ_housing_permits_thous_yoy_lag1
+    econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_yoy_lag1
+    econ_seattle_msa_cpi_u_1982_1984_100_yoy_lag1
+    econ_employment_thous_lvl_lag1
+    econ_services_providing_lvl_lag1
+    econ_population_thous_lvl_lag1
+    econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
+    econ_seattle_msa_cpi_u_1982_1984_100_lvl_lag1
+  ⚠️  PP growth fallback (driver not configured) — using 2022-2026 CAGR 5.65% for optimistic (scenario-invariant)
+  PP_ECON_DRIVER not set — columns available in econ_fcst_2026_2031_pessimistic.rds:
+    econ_employment_thous_yoy_lag1
+    econ_services_providing_yoy_lag1
+    econ_population_thous_yoy_lag1
+    econ_wholesale_and_retail_trade_yoy_lag1
+    econ_housing_permits_thous_yoy_lag1
+    econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_yoy_lag1
+    econ_seattle_msa_cpi_u_1982_1984_100_yoy_lag1
+    econ_employment_thous_lvl_lag1
+    econ_services_providing_lvl_lag1
+    econ_population_thous_lvl_lag1
+    econ_seattle_msa_s_p_corelogic_case_shilller_home_price_index_lvl_lag1
+    econ_seattle_msa_cpi_u_1982_1984_100_lvl_lag1
+  ⚠️  PP growth fallback (driver not configured) — using 2022-2026 CAGR 5.65% for pessimistic (scenario-invariant)
+  Com baseline growth rates:
+   tax_yr  track          gyy n_matched scenario
+    <int> <char>        <num>     <int>   <char>
+1:   2027    com -0.063845545     15356 baseline
+2:   2028    com -0.012777328     17963 baseline
+3:   2029    com  0.004631558     17963 baseline
+4:   2030    com  0.015015842     17963 baseline
+5:   2031    com  0.018562724     17963 baseline
+
+=== Matched-parcel YoY growth (%) ===
+Key: <track, tax_yr>
+     track tax_yr baseline optimistic pessimistic
+    <char>  <int>    <num>      <num>       <num>
+ 1:    com   2027    -6.38      -6.40       -6.46
+ 2:    com   2028    -1.28      -1.06       -2.66
+ 3:    com   2029     0.46       0.41        0.92
+ 4:    com   2030     1.50       1.49        0.94
+ 5:    com   2031     1.86       1.94        1.40
+ 6:  condo   2027     4.57       4.57        4.57
+ 7:  condo   2028     4.66       4.66        4.66
+ 8:  condo   2029     4.81       4.81        4.81
+ 9:  condo   2030     5.10       4.84        4.84
+10:  condo   2031     5.12       5.12        4.87
+11:    res   2027    -0.87      -0.87       -0.87
+12:    res   2028     4.55       3.74       -2.68
+13:    res   2029     4.08       4.17        4.10
+14:    res   2030     4.54       4.84        4.04
+15:    res   2031     4.59       4.86        4.44
+Matched parcel counts (baseline):
+Key: <track>
+    track   2027   2028   2029   2030   2031
+   <char>  <int>  <int>  <int>  <int>  <int>
+1:    com  15356  17963  17963  17963  17963
+2:  condo  35771  97564  97564  97564  97564
+3:    res 166330 166330 166330 166330 166330
+
+Building certified-based forecast...
+
+New construction layer EXCLUDED (INCLUDE_NC = FALSE).
+⚠️  No OERF_New_Construction_Forecast_*.csv found — summary total will EXCLUDE new construction. Run 05_new_construction_forecast.R.
+
+=== Certified-Basis Total AV Summary (EXCLUDES new construction — NC CSV not found) ===
+# A tibble: 6 × 4
+  tax_yr baseline pessimistic optimistic
+   <int> <chr>    <chr>       <chr>     
+1   2026 $306.47B $306.47B    $306.47B  
+2   2027 $300.89B $300.81B    $300.87B  
+3   2028 $309.47B $296.10B    $308.31B  
+4   2029 $319.31B $305.88B    $318.19B  
+5   2030 $331.42B $315.98B    $330.68B  
+6   2031 $344.50B $327.61B    $344.30B  
+💾 exported: Z:/AV ML Model Oct/data/wrangled/av_certified_total_summary_20261010.csv
+
+=== Certified-Based AV Forecast ($B) ===
+--- res ---
+ tax_yr baseline optimistic pessimistic
+  <int>    <num>      <num>       <num>
+   2022   138.15     138.15      138.15
+   2023   161.67     161.67      161.67
+   2024   150.10     150.10      150.10
+   2025   161.27     161.27      161.27
+   2026   168.11     168.11      168.11
+   2027   166.66     166.66      166.66
+   2028   174.24     172.89      162.19
+   2029   181.35     180.10      168.84
+   2030   189.59     188.82      175.66
+   2031   198.30     197.99      183.46
+
+--- condo ---
+ tax_yr baseline optimistic pessimistic
+  <int>    <num>      <num>       <num>
+   2022    29.24      29.24       29.24
+   2023    31.16      31.16       31.16
+   2024    33.35      33.35       33.35
+   2025    31.40      31.40       31.40
+   2026    32.75      32.75       32.75
+   2027    34.25      34.25       34.25
+   2028    35.85      35.85       35.85
+   2029    37.57      37.57       37.57
+   2030    39.48      39.39       39.39
+   2031    41.51      41.41       41.31
+
+--- com ---
+ tax_yr baseline optimistic pessimistic
+  <int>    <num>      <num>       <num>
+   2022   100.36     100.36      100.36
+   2023   106.33     106.33      106.33
+   2024   107.05     107.05      107.05
+   2025    95.95      95.95       95.95
+   2026    96.27      96.27       96.27
+   2027    90.12      90.11       90.05
+   2028    88.97      89.15       87.66
+   2029    89.38      89.52       88.47
+   2030    90.73      90.85       89.30
+   2031    92.41      92.62       90.55
+
+--- pp ---
+ tax_yr baseline optimistic pessimistic
+  <int>    <num>      <num>       <num>
+   2022     7.49       7.49        7.49
+   2023     8.54       8.54        8.54
+   2024     8.95       8.95        8.95
+   2025     9.07       9.07        9.07
+   2026     9.33       9.33        9.33
+   2027     9.86       9.86        9.86
+   2028    10.41      10.41       10.41
+   2029    11.00      11.00       11.00
+   2030    11.62      11.62       11.62
+   2031    12.28      12.28       12.28
+
+--- Total ---
+ tax_yr baseline optimistic pessimistic
+  <int>    <num>      <num>       <num>
+   2022   275.25     275.25      275.25
+   2023   307.70     307.70      307.70
+   2024   299.44     299.44      299.44
+   2025   297.70     297.70      297.70
+   2026   306.47     306.47      306.47
+   2027   300.89     300.87      300.81
+   2028   309.47     308.31      296.10
+   2029   319.31     318.19      305.88
+   2030   331.42     330.68      315.98
+   2031   344.50     344.30      327.61
+
+
+Charts saved to: Z:/AV ML Model Oct/charts
+Data exported to data/wrangled/
